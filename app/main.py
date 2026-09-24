@@ -45,15 +45,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Routers
-app.include_router(resumes.router, prefix="/api")
-app.include_router(search.router, prefix="/api")
-app.include_router(jobs.router, prefix="/api")
-app.include_router(applications.router, prefix="/api")
-app.include_router(review.router, prefix="/api")
-app.include_router(settings_api.router, prefix="/api")
+# Include Routers (available directly at root http://localhost:8000)
+app.include_router(resumes.router)
+app.include_router(search.router)
+app.include_router(jobs.router)
+app.include_router(applications.router)
+app.include_router(review.router)
+app.include_router(settings_api.router)
 
-@app.get("/api/health")
+# Also support /api prefix for backwards compatibility
+app.include_router(resumes.router, prefix="/api", include_in_schema=False)
+app.include_router(search.router, prefix="/api", include_in_schema=False)
+app.include_router(jobs.router, prefix="/api", include_in_schema=False)
+app.include_router(applications.router, prefix="/api", include_in_schema=False)
+app.include_router(review.router, prefix="/api", include_in_schema=False)
+app.include_router(settings_api.router, prefix="/api", include_in_schema=False)
+
+@app.get("/")
+async def root():
+    return {
+        "status": "healthy",
+        "message": "Dice Job Application Automation API is running",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+@app.get("/health")
+@app.get("/api/health", include_in_schema=False)
 async def health_check():
     db = get_database()
     db_status = "connected" if db is not None else "disconnected"
