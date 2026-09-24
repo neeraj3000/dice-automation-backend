@@ -1,0 +1,15 @@
+# Virtual environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local data & browser session
+.env
+data/browser_profile/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
