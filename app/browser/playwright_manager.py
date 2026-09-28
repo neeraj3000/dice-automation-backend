@@ -33,7 +33,13 @@ class PlaywrightManager:
                     self.context = None
 
             app_settings = await settings_service.get_settings()
-            headless = app_settings.headless_browser
+            headless_env = os.environ.get("HEADLESS_BROWSER")
+            if headless_env is not None:
+                headless = headless_env.lower() in ("true", "1", "yes")
+            elif sys.platform != "win32":
+                headless = True
+            else:
+                headless = app_settings.headless_browser
 
             if not self.playwright:
                 self.playwright = await async_playwright().start()
@@ -52,8 +58,13 @@ class PlaywrightManager:
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-infobars",
-                "--start-maximized",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
             ]
+            if not headless:
+                args.append("--start-maximized")
+
+            viewport = None if not headless else {"width": 1280, "height": 800}
 
             try:
                 self.context = await self.playwright.chromium.launch_persistent_context(
@@ -61,7 +72,7 @@ class PlaywrightManager:
                     channel=channel,
                     headless=headless,
                     args=args,
-                    viewport=None, # uses full screen
+                    viewport=viewport,
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 )
             except Exception as e:
@@ -70,7 +81,7 @@ class PlaywrightManager:
                     user_data_dir=str(self.profile_dir),
                     headless=headless,
                     args=args,
-                    viewport=None,
+                    viewport=viewport,
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 )
             return self.context

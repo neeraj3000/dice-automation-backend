@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: dice-automation-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: MONGODB_URL
+        sync: false
+      - key: DATABASE_NAME
+        value: dice_automation
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: HEADLESS_BROWSER
+        value: "true"
+      - key: CORS_ORIGINS
+        value: "*"

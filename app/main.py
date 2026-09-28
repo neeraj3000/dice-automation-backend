@@ -1,4 +1,5 @@
 import sys
+import os
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -32,18 +33,30 @@ app = FastAPI(
 )
 
 # CORS configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+cors_origins_env = os.environ.get("CORS_ORIGINS", "")
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
+]
+if cors_origins_env and cors_origins_env != "*":
+    for origin in cors_origins_env.split(","):
+        if origin.strip():
+            allowed_origins.append(origin.strip())
+
+cors_kwargs = {
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+    "allow_credentials": True,
+}
+if cors_origins_env == "*" or not cors_origins_env:
+    # Allow all HTTP/HTTPS origins safely with regex while preserving credentials
+    cors_kwargs["allow_origin_regex"] = r"^https?://.*"
+else:
+    cors_kwargs["allow_origins"] = allowed_origins
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 # Include Routers (available directly at root http://localhost:8000)
 app.include_router(resumes.router)
@@ -83,6 +96,7 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    port = int(os.environ.get("PORT", 8000))
     loop_param = "asyncio:ProactorEventLoop" if sys.platform == "win32" else "auto"
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True, loop=loop_param)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False, loop=loop_param)
 
