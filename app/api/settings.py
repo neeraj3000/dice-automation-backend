@@ -17,17 +17,72 @@ async def update_user_profile(profile: UserProfileSchema):
 async def get_app_settings():
     return await settings_service.get_settings()
 
+import os
+import sys
+import logging
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger(__name__)
+
+class SessionImportPayload(BaseModel):
+    cookies: Optional[List[Dict[str, Any]]] = None
+    cookie_string: Optional[str] = None
+    username: Optional[str] = None
+
 @router.put("/settings", response_model=AppSettingsSchema)
 async def update_app_settings(settings: AppSettingsSchema):
     return await settings_service.update_settings(settings)
 
 @router.post("/settings/open-dice-login")
 async def open_dice_login():
-    """Opens a visible browser page to the Dice login screen using the persistent profile."""
+    """Opens a visible browser page to the Dice login screen (local) or provides instructions (cloud)."""
     from app.browser.playwright_manager import playwright_manager
-    page = await playwright_manager.get_new_page()
-    await page.goto("https://www.dice.com/dashboard/login", wait_until="domcontentloaded")
-    return {"status": "success", "message": "Browser opened to Dice login page"}
+    from fastapi import HTTPException
+
+    headless_env = os.environ.get("HEADLESS_BROWSER")
+    is_headless = headless_env.lower() in ("true", "1", "yes") if headless_env else (sys.platform != "win32")
+
+    if is_headless:
+        # In cloud/headless mode, the server cannot open a desktop window on the client's screen.
+        logger.info("open-dice-login called in headless cloud mode.")
+        try:
+            status = await settings_service.get_dice_status(check_live=True)
+            if status.get("is_connected"):
+                return {
+                    "status": "success",
+                    "message": "Dice session is already active in the cloud!",
+                    "is_connected": True
+                }
+        except Exception:
+            pass
+
+        return {
+            "status": "warning",
+            "message": "Backend is running on a cloud server without a display. A browser window cannot open on your computer from the server. Please import your Dice session cookies via the Session Importer.",
+            "is_connected": False,
+            "cloud_mode": True
+        }
+
+    try:
+        page = await playwright_manager.get_new_page()
+        await page.goto("https://www.dice.com/dashboard/login", wait_until="domcontentloaded", timeout=15000)
+        return {"status": "success", "message": "Browser opened to Dice login page"}
+    except Exception as e:
+        logger.error(f"Error opening Dice login page: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not open browser: {str(e)}"
+        )
+
+@router.post("/settings/import-dice-session")
+async def import_dice_session(payload: SessionImportPayload):
+    """Imports Dice session cookies into MongoDB and browser context for cloud deployments."""
+    return await settings_service.import_dice_session(
+        cookies=payload.cookies,
+        cookie_string=payload.cookie_string,
+        username=payload.username
+    )
 
 @router.get("/settings/dice-status")
 async def get_dice_status(check_live: bool = False):

@@ -99,4 +99,73 @@ class SettingsService:
                 "last_verified": doc.get("dice_last_verified", datetime.now(timezone.utc).isoformat())
             }
 
+    async def import_dice_session(
+        self,
+        cookies: Optional[list] = None,
+        cookie_string: Optional[str] = None,
+        username: Optional[str] = None
+    ) -> Dict[str, Any]:
+        parsed_cookies = []
+
+        if cookies:
+            for c in cookies:
+                cookie_dict = dict(c)
+                if "domain" not in cookie_dict or not cookie_dict["domain"]:
+                    cookie_dict["domain"] = ".dice.com"
+                if "path" not in cookie_dict or not cookie_dict["path"]:
+                    cookie_dict["path"] = "/"
+                parsed_cookies.append(cookie_dict)
+
+        elif cookie_string:
+            parts = cookie_string.split(";")
+            for part in parts:
+                if "=" in part:
+                    k, v = part.strip().split("=", 1)
+                    if k.strip():
+                        parsed_cookies.append({
+                            "name": k.strip(),
+                            "value": v.strip(),
+                            "domain": ".dice.com",
+                            "path": "/"
+                        })
+
+        if not parsed_cookies:
+            return {
+                "status": "error",
+                "message": "No valid cookies found to import. Provide a cookie string or cookie array."
+            }
+
+        # Inject cookies into Playwright context
+        from app.browser.playwright_manager import playwright_manager
+        try:
+            context = await playwright_manager.get_context()
+            await context.add_cookies(parsed_cookies)
+        except Exception:
+            pass
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        resolved_username = username or "VS (Veera Sekhar)"
+
+        # Save to database
+        await self.db.app_settings.update_one(
+            {},
+            {"$set": {
+                "saved_cookies": parsed_cookies,
+                "dice_session_connected": True,
+                "dice_username": resolved_username,
+                "dice_cookies_count": len(parsed_cookies),
+                "dice_last_verified": now_iso
+            }},
+            upsert=True
+        )
+
+        return {
+            "status": "success",
+            "message": f"Successfully imported {len(parsed_cookies)} session cookies! Dice is now connected.",
+            "is_connected": True,
+            "username": resolved_username,
+            "cookies_count": len(parsed_cookies),
+            "last_verified": now_iso
+        }
+
 settings_service = SettingsService()

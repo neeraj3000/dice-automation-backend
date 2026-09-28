@@ -67,24 +67,47 @@ class PlaywrightManager:
 
             viewport = None if not headless else {"width": 1280, "height": 800}
 
+            # Remove any stale lock files leftover from previous crashes or ungraceful container shutdowns
+            for lock_name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+                lock_file = self.profile_dir / lock_name
+                try:
+                    if lock_file.exists() or lock_file.is_symlink():
+                        lock_file.unlink()
+                except Exception:
+                    pass
+
+            launch_opts = {
+                "user_data_dir": str(self.profile_dir),
+                "headless": headless,
+                "args": args,
+                "viewport": viewport,
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            }
+
             try:
-                self.context = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir=str(self.profile_dir),
-                    channel=channel,
-                    headless=headless,
-                    args=args,
-                    viewport=viewport,
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                )
+                if channel:
+                    self.context = await self.playwright.chromium.launch_persistent_context(
+                        channel=channel,
+                        **launch_opts
+                    )
+                else:
+                    self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
             except Exception as e:
-                # Fallback to default chromium without channel if custom channel fails
-                self.context = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir=str(self.profile_dir),
-                    headless=headless,
-                    args=args,
-                    viewport=viewport,
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                )
+                logger.warning(f"Initial browser launch failed ({e}). Retrying with default Chromium...")
+                self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
+
+            # Restore saved cookies from MongoDB if available
+            try:
+                from app.database import get_database
+                db = get_database()
+                if db is not None:
+                    settings_doc = await db.app_settings.find_one({})
+                    if settings_doc and settings_doc.get("saved_cookies"):
+                        await self.context.add_cookies(settings_doc["saved_cookies"])
+                        logger.info(f"Restored {len(settings_doc['saved_cookies'])} saved Dice cookies from database.")
+            except Exception as e:
+                logger.debug(f"Could not restore saved cookies on startup: {e}")
+
             return self.context
 
     async def get_new_page(self) -> Page:
