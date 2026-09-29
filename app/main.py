@@ -33,6 +33,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Dice-Automation] Notice: Could not verify Dice session on startup: {e}")
 
+    # Startup: Ensure Playwright browser binary is available (self-healing for Render and cloud deploys)
+    try:
+        from app.browser.playwright_manager import playwright_manager
+        asyncio.create_task(playwright_manager.ensure_browser_installed())
+    except Exception as e:
+        print(f"[Dice-Automation] Notice: Could not schedule browser verification on startup: {e}")
+
     yield
 
     # Shutdown: Close browser context, cancel active login supervisors, and close MongoDB

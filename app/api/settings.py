@@ -70,6 +70,24 @@ async def get_dice_status(check_live: bool = False):
     """Returns the current Dice account connection status."""
     return await settings_service.get_dice_status(check_live=check_live)
 
+@router.get("/settings/browser-status")
+async def get_browser_status():
+    """Returns Playwright browser binary presence and environment status."""
+    from app.browser.playwright_manager import playwright_manager
+    return await playwright_manager.get_browser_status()
+
+@router.post("/settings/install-browser")
+async def install_browser():
+    """Triggers download and installation of Playwright Chromium browser binary."""
+    from app.browser.playwright_manager import playwright_manager
+    installed = await playwright_manager.ensure_browser_installed()
+    status = await playwright_manager.get_browser_status()
+    return {
+        "success": installed,
+        "message": "Playwright Chromium browser installed and verified." if installed else "Failed to install Playwright browser.",
+        **status
+    }
+
 @router.get("/dashboard/stats")
 async def get_dashboard_stats():
     db = get_database()

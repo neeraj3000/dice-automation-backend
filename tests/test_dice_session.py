@@ -77,3 +77,22 @@ async def test_verify_session_on_startup():
     assert isinstance(status, dict)
     assert "is_connected" in status
     assert status["username"] != "VS (Veera Sekhar)"
+
+@pytest.mark.anyio
+async def test_browser_status_and_verification():
+    from app.browser.playwright_manager import playwright_manager
+    # Test ensure_browser_installed returns True (since Chromium is installed locally)
+    is_installed = await playwright_manager.ensure_browser_installed()
+    assert is_installed is True
+
+    # Test /settings/browser-status endpoint
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/settings/browser-status")
+        assert res.status_code == 200
+        data = res.json()
+        assert "installed" in data
+        assert data["installed"] is True
+        assert "executable_path" in data
+        assert "headless" in data
+        assert "is_cloud_mode" in data
