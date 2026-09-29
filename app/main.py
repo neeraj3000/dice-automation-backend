@@ -4,7 +4,12 @@ import asyncio
 from contextlib import asynccontextmanager
 
 if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    try:
+        current_policy = asyncio.get_event_loop_policy()
+        if not isinstance(current_policy, asyncio.WindowsProactorEventLoopPolicy):
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    except Exception:
+        pass
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,7 +65,9 @@ allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    "http://127.0.0.1:3000"
+    "http://127.0.0.1:3000",
+    "https://www.dice.com",
+    "https://dice.com"
 ]
 if cors_origins_env and cors_origins_env != "*":
     for origin in cors_origins_env.split(","):

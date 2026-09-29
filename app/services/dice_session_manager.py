@@ -3,7 +3,7 @@ import sys
 import asyncio
 import json
 import logging
-from typing import Optional, Set, Dict, Any, AsyncGenerator
+from typing import Optional, Set, Dict, Any, AsyncGenerator, List
 from playwright.async_api import Page
 
 from app.browser.playwright_manager import playwright_manager
@@ -88,14 +88,41 @@ class DiceSessionManager:
         finally:
             self.unsubscribe(queue)
 
+    DICE_AUTH_COOKIE_NAMES = (
+        "identity",
+        "refreshtoken",
+        "cms_cookie",
+        "candidate_id",
+        "peopleid",
+        "dli",
+        "dice_member_id",
+        "dice_session",
+        "dice-user-id",
+        "_oauth2_proxy",
+        "session",
+        "cognito",
+    )
+
+    def _has_authenticated_cookies(self, cookies: List[Dict[str, Any]]) -> bool:
+        """Checks if the cookies list contains any known Dice authentication tokens."""
+        for c in cookies:
+            name = (c.get("name") or "").lower()
+            if any(auth_key in name for auth_key in self.DICE_AUTH_COOKIE_NAMES):
+                val = c.get("value") or ""
+                if "identity" in name:
+                    if len(val) > 10:
+                        return True
+                elif len(val) > 0:
+                    return True
+        return False
+
     async def start_interactive_login(self) -> Dict[str, Any]:
         """
         Starts an interactive browser login session.
-        If a session is already active or in progress, re-focuses the page.
+        - In cloud/headless mode: Returns login URL and instructions for client-side sign-in & sync.
+        - In local desktop mode: Opens a visible Chromium window on the user's desktop with full login supervision.
         """
-        is_headless = playwright_manager.headless
-
-        if is_headless:
+        if playwright_manager.is_cloud_mode:
             logger.info("start_interactive_login requested in headless/cloud mode.")
             status = await settings_service.get_dice_status(check_live=True)
             if status.get("is_connected"):
@@ -104,14 +131,22 @@ class DiceSessionManager:
                     "login_url": "https://www.dice.com/dashboard/login",
                     "message": "Dice session is already active in the cloud environment.",
                     "is_connected": True,
-                    "cloud_mode": True
+                    "cloud_mode": True,
+                    "browser_opened": False
                 }
+            self._status = "WAITING_FOR_LOGIN"
+            await self.broadcast("LOGIN_STARTED", {
+                "message": "Dice login tab opened. Complete sign in, then sync your session.",
+                "manager_status": "WAITING_FOR_LOGIN",
+                "cloud_mode": True
+            })
             return {
                 "status": "success",
                 "login_url": "https://www.dice.com/dashboard/login",
-                "message": "Opening Dice login in new tab. Complete sign in, then use Session Importer to sync credentials.",
+                "message": "Opening Dice login tab. Complete sign in, then sync your session.",
                 "is_connected": False,
-                "cloud_mode": True
+                "cloud_mode": True,
+                "browser_opened": False
             }
 
         async with self._lock:
@@ -122,8 +157,10 @@ class DiceSessionManager:
                     return {
                         "status": "success",
                         "login_url": "https://www.dice.com/dashboard/login",
-                        "message": "Dice login window is already open. Please complete sign in.",
-                        "manager_status": self._status
+                        "message": "Dice login window is already open on your desktop. Please complete sign in.",
+                        "manager_status": self._status,
+                        "cloud_mode": False,
+                        "browser_opened": True
                     }
                 except Exception:
                     self._active_page = None
@@ -138,12 +175,13 @@ class DiceSessionManager:
                 self._active_page = page
                 self._status = "WAITING_FOR_LOGIN"
 
-                await page.goto("https://www.dice.com/dashboard/login", wait_until="domcontentloaded", timeout=20000)
+                await page.goto("https://www.dice.com/dashboard/login", wait_until="domcontentloaded", timeout=25000)
 
                 # Broadcast login start to frontend
                 await self.broadcast("LOGIN_STARTED", {
-                    "message": "Browser opened to Dice login page.",
-                    "manager_status": "WAITING_FOR_LOGIN"
+                    "message": "Browser opened to Dice login page on desktop.",
+                    "manager_status": "WAITING_FOR_LOGIN",
+                    "cloud_mode": False
                 })
 
                 # Spawn supervised watcher
@@ -155,8 +193,10 @@ class DiceSessionManager:
                 return {
                     "status": "success",
                     "login_url": "https://www.dice.com/dashboard/login",
-                    "message": "Browser opened to Dice login page.",
-                    "manager_status": "WAITING_FOR_LOGIN"
+                    "message": "Visible browser opened to Dice login page on your desktop.",
+                    "manager_status": "WAITING_FOR_LOGIN",
+                    "cloud_mode": False,
+                    "browser_opened": True
                 }
             except Exception as e:
                 self._status = "IDLE"
@@ -173,14 +213,14 @@ class DiceSessionManager:
         auth_tokens = ["/dashboard/login", "/signin", "login.dice.com", "/auth0", "/authorize", "/oauth2"]
         if any(token in u for token in auth_tokens):
             return False
-        # Standard post-login landing pages
-        return any(path in u for path in ["/home", "/dashboard", "/jobs", "/profile", "/candidates", "/search"])
+        # Standard post-login landing pages or portal root
+        return any(path in u for path in ["/home", "/dashboard", "/jobs", "/profile", "/candidates", "/search", "/feed", "/my-dice", "/applications"]) or u.rstrip("/").endswith("dice.com")
 
     async def _supervise_login_lifecycle(self, page: Page):
         """
         Event-driven supervisor for the login page.
-        Watches for navigation away from login or window close.
-        When authentication completes, captures cookies, verifies session, and notifies subscribers.
+        Watches for navigation away from login, authentication cookie detection, or window close.
+        When authentication completes, captures cookies, verifies session, and notifies subscribers in real-time.
         """
         logger.info("[DiceSessionManager] Watching for login completion...")
         login_completed = asyncio.Event()
@@ -200,15 +240,19 @@ class DiceSessionManager:
         page.on("framenavigated", on_navigated)
         page.on("close", on_close)
 
-        # Check initial URL in case navigation completed before listener was attached
-        if self._is_authenticated_url(page.url):
-            login_completed.set()
+        # Immediate check if profile was already authenticated upon page load
+        try:
+            if not page.is_closed():
+                initial_cookies = await page.context.cookies()
+                dice_cookies = [c for c in initial_cookies if "dice.com" in c.get("domain", "")]
+                if self._has_authenticated_cookies(dice_cookies) or self._is_authenticated_url(page.url):
+                    login_completed.set()
+        except Exception:
+            pass
 
         try:
-            # Wait up to 10 minutes (600s) for either login completion or window close
-            # We also check periodically (every 3s) for cookies in case of non-URL SPA state changes
             start_time = asyncio.get_event_loop().time()
-            max_duration = 600.0
+            max_duration = 600.0  # 10 minutes
 
             while not login_completed.is_set() and not window_closed.is_set():
                 elapsed = asyncio.get_event_loop().time() - start_time
@@ -217,13 +261,12 @@ class DiceSessionManager:
                     break
 
                 try:
-                    # Non-blocking wait for events
                     await asyncio.wait(
                         [
                             asyncio.create_task(login_completed.wait()),
                             asyncio.create_task(window_closed.wait()),
                         ],
-                        timeout=3.0,
+                        timeout=2.0,
                         return_when=asyncio.FIRST_COMPLETED
                     )
                 except Exception:
@@ -235,16 +278,17 @@ class DiceSessionManager:
                 # Periodic cookie check (fallback for SPAs without full navigation)
                 try:
                     if not page.is_closed():
+                        current_url = page.url
                         cookies = await page.context.cookies()
                         dice_cookies = [c for c in cookies if "dice.com" in c.get("domain", "")]
-                        # Check for key session token cookies
-                        has_auth_cookies = any(
-                            c.get("name") in ("dice-user-id", "SESSION", "_oauth2_proxy", "dice_session", "dice_member_id")
-                            or "cognito" in c.get("name", "").lower()
-                            for c in dice_cookies
-                        )
-                        if has_auth_cookies or (len(dice_cookies) >= 8 and not any(t in page.url.lower() for t in ["/login", "/signin"])):
-                            logger.info("[DiceSessionManager] Detected auth session cookies.")
+
+                        if self._has_authenticated_cookies(dice_cookies):
+                            logger.info(f"[DiceSessionManager] Detected authenticated session cookies (count: {len(dice_cookies)}).")
+                            login_completed.set()
+                            break
+
+                        if self._is_authenticated_url(current_url) and len(dice_cookies) >= 5:
+                            logger.info(f"[DiceSessionManager] Main frame reached authenticated URL: {current_url}")
                             login_completed.set()
                             break
                 except Exception:
@@ -259,37 +303,51 @@ class DiceSessionManager:
 
                     # Import session into MongoDB and active context
                     import_result = await settings_service.import_dice_session(cookies=dice_cookies)
+                    candidate_username = import_result.get("username", "")
 
                     # Broadcast connected event to all SSE subscribers
                     await self.broadcast("DICE_CONNECTED", {
                         "is_connected": True,
-                        "username": import_result.get("username", ""),
+                        "username": candidate_username,
                         "cookies_count": len(dice_cookies),
                         "manager_status": "CONNECTED",
-                        "message": "Dice account connected successfully!"
+                        "message": f"Dice account connected successfully! Account: {candidate_username or 'Authenticated Candidate'}"
                     })
                     logger.info("[DiceSessionManager] Real-time DICE_CONNECTED event broadcast to all clients.")
+
+                    # Wait briefly for user to see success, then close the login page
+                    await asyncio.sleep(2.5)
+                    if not page.is_closed():
+                        await page.close()
                 except Exception as e:
                     logger.error(f"[DiceSessionManager] Failed to import session after login: {e}")
             elif window_closed.is_set():
-                logger.info("[DiceSessionManager] User closed login window without completing authentication.")
-                self._status = "CANCELLED"
-                # Check one final time if cookies were set before close
+                logger.info("[DiceSessionManager] User closed login window. Checking if authentication completed prior to close...")
                 try:
-                    current_status = await settings_service.get_dice_status(check_live=True)
-                    if current_status.get("is_connected"):
-                        self._status = "CONNECTED"
-                        await self.broadcast("DICE_CONNECTED", {
-                            **current_status,
-                            "manager_status": "CONNECTED"
-                        })
-                    else:
-                        await self.broadcast("LOGIN_CANCELLED", {
-                            "manager_status": "CANCELLED",
-                            "message": "Dice login window was closed."
-                        })
-                except Exception:
-                    pass
+                    if playwright_manager.context:
+                        cookies = await playwright_manager.context.cookies()
+                        dice_cookies = [c for c in cookies if "dice.com" in c.get("domain", "")]
+                        if self._has_authenticated_cookies(dice_cookies):
+                            logger.info("[DiceSessionManager] Valid auth cookies found on window close! Connecting...")
+                            self._status = "CONNECTED"
+                            import_result = await settings_service.import_dice_session(cookies=dice_cookies)
+                            candidate_username = import_result.get("username", "")
+                            await self.broadcast("DICE_CONNECTED", {
+                                "is_connected": True,
+                                "username": candidate_username,
+                                "cookies_count": len(dice_cookies),
+                                "manager_status": "CONNECTED",
+                                "message": f"Dice account connected successfully! Account: {candidate_username or 'Authenticated Candidate'}"
+                            })
+                            return
+                except Exception as check_e:
+                    logger.debug(f"Window close cookie inspection error: {check_e}")
+
+                self._status = "CANCELLED"
+                await self.broadcast("LOGIN_CANCELLED", {
+                    "manager_status": "CANCELLED",
+                    "message": "Dice login window was closed."
+                })
             else:
                 self._status = "IDLE"
                 await self.broadcast("LOGIN_TIMEOUT", {

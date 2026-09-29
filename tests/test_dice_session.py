@@ -12,6 +12,16 @@ from app.services.settings_service import settings_service
 async def setup_db():
     await connect_db()
     yield
+    # Cleanup test mutations after test execution
+    try:
+        db = get_database()
+        if db is not None:
+            await db.app_settings.update_one(
+                {},
+                {"$set": {"dice_session_connected": False, "dice_username": "", "dice_cookies_count": 0, "saved_cookies": []}}
+            )
+    except Exception:
+        pass
     await close_db()
 
 @pytest.mark.anyio
@@ -55,10 +65,10 @@ async def test_session_import_generic_username():
         # Import with custom generic username
         res2 = await client.post(
             "/settings/import-dice-session",
-            json={"cookies": cookies, "username": "CustomDevUser"}
+            json={"cookies": cookies, "username": "Alex Johnson"}
         )
         assert res2.status_code == 200
-        assert res2.json()["username"] == "CustomDevUser"
+        assert res2.json()["username"] == "Alex Johnson"
 
 @pytest.mark.anyio
 async def test_verify_session_on_startup():

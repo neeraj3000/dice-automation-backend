@@ -19,6 +19,30 @@ class PlaywrightManager:
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
 
+    @property
+    def has_display(self) -> bool:
+        """Determines if the current system environment has a graphical display capable of rendering windows."""
+        return sys.platform == "win32" or bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+    @property
+    def headless(self) -> bool:
+        """Determines whether browser instances should be launched in headless mode."""
+        headless_env = os.environ.get("HEADLESS_BROWSER")
+        if headless_env is not None:
+            return headless_env.lower() in ("true", "1", "yes")
+        if not self.has_display:
+            return True
+        return False
+
+    @property
+    def is_headless(self) -> bool:
+        return self.headless
+
+    @property
+    def is_cloud_mode(self) -> bool:
+        """Returns True if the backend is running in a headless / cloud environment without a direct user desktop."""
+        return not self.has_display or os.environ.get("HEADLESS_BROWSER", "").lower() in ("true", "1", "yes")
+
     async def get_context(self) -> BrowserContext:
         async with self._lock:
             if self.context:
@@ -35,11 +59,10 @@ class PlaywrightManager:
 
             app_settings = await settings_service.get_settings()
             headless_env = os.environ.get("HEADLESS_BROWSER")
-            has_display = sys.platform == "win32" or bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
             if headless_env is not None:
                 headless = headless_env.lower() in ("true", "1", "yes")
-            elif not has_display:
+            elif not self.has_display:
                 headless = True
             else:
                 headless = app_settings.headless_browser
@@ -47,17 +70,15 @@ class PlaywrightManager:
             if not self.playwright:
                 self.playwright = await async_playwright().start()
 
-            # Check for system Chrome across Windows and Linux
+            # Check for system Google Chrome across Windows and Linux
             channel = None
-            chrome_paths = [
+            google_chrome_paths = [
                 Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
                 Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
                 Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "Application" / "chrome.exe",
                 Path("/usr/bin/google-chrome"),
-                Path("/usr/bin/chromium"),
-                Path("/usr/bin/chromium-browser"),
             ]
-            if any(p.exists() for p in chrome_paths):
+            if any(p.exists() for p in google_chrome_paths):
                 channel = "chrome"
 
             args = [
@@ -67,6 +88,14 @@ class PlaywrightManager:
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
                 "--disable-setuid-sandbox",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-breakpad",
+                "--disable-component-extensions-with-background-pages",
+                "--disable-ipc-flooding-protection",
+                "--disable-renderer-backgrounding",
+                "--mute-audio",
             ]
             if not headless:
                 args.append("--start-maximized")
@@ -144,6 +173,14 @@ class PlaywrightManager:
         for attempt in range(2):
             try:
                 context = await self.get_context()
+                # Clean up any closed or zombie pages in context to prevent memory leaks in production
+                open_pages = [p for p in context.pages if not p.is_closed()]
+                if len(open_pages) > 3:
+                    for old_p in open_pages[:-2]:
+                        try:
+                            await old_p.close()
+                        except Exception:
+                            pass
                 return await context.new_page()
             except Exception as e:
                 logger.warning(f"Failed to create new page on attempt {attempt + 1}: {e}. Resetting browser context...")

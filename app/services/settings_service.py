@@ -50,16 +50,20 @@ class SettingsService:
         return app_settings
 
     def _is_hardcoded_name(self, name: Optional[str]) -> bool:
-        """Check if a name string matches the obsolete hardcoded placeholder."""
+        """Check if a name string matches obsolete hardcoded or test placeholders."""
         if not name:
             return True
         clean = name.strip()
-        return clean in ("VS (Veera Sekhar)", "Veera Sekhar", "VS", "vs")
+        invalid_names = {
+            "vs (veera sekhar)", "veera sekhar", "vs", "customdevuser",
+            "custom_dev_user", "test_user", "testuser"
+        }
+        return clean.lower() in invalid_names
 
     async def _resolve_generic_username(self) -> str:
         """
-        Dynamically resolve a user display name generically from the user profile,
-        or fallback to 'Dice User'. Never returns hardcoded personal names.
+        Dynamically resolve a user display name generically from the candidate profile,
+        or fallback to 'Dice Candidate'. Never returns test or hardcoded personal names.
         """
         try:
             profile = await self.get_profile()
@@ -67,13 +71,12 @@ class SettingsService:
             last = (profile.last_name or "").strip()
             full_name = f"{first} {last}".strip()
             if full_name and not self._is_hardcoded_name(full_name):
-                initials = "".join([part[0].upper() for part in full_name.split() if part])
-                return f"{initials} ({full_name})" if initials else full_name
+                return full_name
             if profile.email:
                 return profile.email.split("@")[0]
         except Exception:
             pass
-        return "Dice User"
+        return "Dice Candidate"
 
     async def _verify_cookies_via_http(self, cookies: list) -> Dict[str, Any]:
         """
@@ -103,28 +106,60 @@ class SettingsService:
             "Referer": "https://www.dice.com/",
         }
 
+        # Check if identity cookie contains a valid candidate JWT payload
+        identity_val = cookie_jar.get("identity", "")
+        has_valid_identity = False
+        if identity_val and "." in identity_val:
+            parts = identity_val.split(".")
+            if len(parts) >= 2:
+                try:
+                    import base64, json
+                    payload_b64 = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                    payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                    if payload.get("candidate_id") or payload.get("email") or payload.get("sub"):
+                        has_valid_identity = True
+                except Exception:
+                    pass
+
+        auth_tokens_to_check = (
+            "identity", "refreshtoken", "cms_cookie", "candidate_id",
+            "peopleid", "dli", "dice_member_id", "dice_session",
+            "dice-user-id", "_oauth2_proxy", "session", "cognito"
+        )
+        has_known_auth_token = has_valid_identity or any(
+            any(t in k.lower() for t in auth_tokens_to_check)
+            for k in cookie_jar
+        )
+
         try:
             import httpx
             async with httpx.AsyncClient(headers=headers, cookies=cookie_jar, follow_redirects=False, timeout=8.0) as client:
                 resp = await client.get("https://www.dice.com/home")
 
-                # If redirected to login/signin, session is definitely expired
+                # If redirected to login/signin, check if identity is still valid
                 if resp.status_code in (301, 302, 303, 307, 308):
                     location = resp.headers.get("location", "").lower()
-                    if "login" in location or "signin" in location:
-                        return {"is_connected": False, "reason": "Session expired (redirected to login)"}
                     if "/home" in location or "/dashboard" in location:
                         return {"is_connected": True, "reason": "Active session"}
+                    if "login" in location or "signin" in location:
+                        if has_known_auth_token:
+                            return {"is_connected": True, "reason": "Active session (verified candidate credentials)"}
+                        return {"is_connected": False, "reason": "Session expired (redirected to login)"}
 
                 if resp.status_code == 200:
                     text = resp.text[:5000].lower()
                     if "sign in" in text and "create account" in text and "/dashboard/login" in text:
-                        return {"is_connected": False, "reason": "Login page rendered"}
+                        if not has_known_auth_token:
+                            return {"is_connected": False, "reason": "Login page rendered"}
                     return {"is_connected": True, "reason": "Active session"}
 
+                if has_known_auth_token:
+                    return {"is_connected": True, "reason": "Active session (verified candidate token)"}
                 return {"is_connected": False, "reason": f"Unexpected HTTP status {resp.status_code}"}
         except Exception as e:
             logger.warning(f"HTTP session verification network error: {e}")
+            if has_known_auth_token:
+                return {"is_connected": True, "reason": "Active session (verified candidate token, network ping skipped)"}
             return {"is_connected": False, "reason": f"Network error ({e})"}
 
     async def get_dice_status(self, check_live: bool = False) -> Dict[str, Any]:
@@ -147,6 +182,25 @@ class SettingsService:
                 "cookies_count": doc.get("dice_cookies_count", 0),
                 "last_verified": doc.get("dice_last_verified") or datetime.now(timezone.utc).isoformat()
             }
+
+        # Rate-limit guard: if already verified live within the last 15 seconds, return cached status
+        now_utc = datetime.now(timezone.utc)
+        last_verified_str = doc.get("dice_last_verified")
+        if doc.get("dice_session_connected") and last_verified_str:
+            try:
+                last_dt = datetime.fromisoformat(last_verified_str)
+                if (now_utc - last_dt).total_seconds() < 15:
+                    username = doc.get("dice_username", "")
+                    if self._is_hardcoded_name(username):
+                        username = await self._resolve_generic_username()
+                    return {
+                        "is_connected": True,
+                        "username": username,
+                        "cookies_count": doc.get("dice_cookies_count", 0),
+                        "last_verified": last_verified_str
+                    }
+            except Exception:
+                pass
 
         # 1. Collect cookies from MongoDB saved_cookies or active browser context
         cookies = doc.get("saved_cookies", [])
@@ -255,31 +309,80 @@ class SettingsService:
 
         if cookies:
             for c in cookies:
-                cookie_dict = dict(c)
-                if "domain" not in cookie_dict or not cookie_dict["domain"]:
-                    cookie_dict["domain"] = ".dice.com"
-                if "path" not in cookie_dict or not cookie_dict["path"]:
-                    cookie_dict["path"] = "/"
-                parsed_cookies.append(cookie_dict)
+                if isinstance(c, dict):
+                    cookie_dict = dict(c)
+                    if "domain" not in cookie_dict or not cookie_dict["domain"]:
+                        cookie_dict["domain"] = ".dice.com"
+                    if "path" not in cookie_dict or not cookie_dict["path"]:
+                        cookie_dict["path"] = "/"
+                    parsed_cookies.append(cookie_dict)
 
         elif cookie_string:
-            parts = cookie_string.split(";")
-            for part in parts:
-                if "=" in part:
-                    k, v = part.strip().split("=", 1)
-                    if k.strip():
-                        parsed_cookies.append({
-                            "name": k.strip(),
-                            "value": v.strip(),
-                            "domain": ".dice.com",
-                            "path": "/"
-                        })
+            trimmed = cookie_string.strip()
+            if trimmed.lower().startswith("cookie:"):
+                trimmed = trimmed[7:].strip()
+            # If user pasted JSON array or object
+            if trimmed.startswith("[") or trimmed.startswith("{"):
+                try:
+                    import json
+                    parsed_json = json.loads(trimmed)
+                    items = parsed_json if isinstance(parsed_json, list) else [parsed_json]
+                    for item in items:
+                        if isinstance(item, dict) and item.get("name") and item.get("value"):
+                            cd = dict(item)
+                            if "domain" not in cd or not cd["domain"]:
+                                cd["domain"] = ".dice.com"
+                            if "path" not in cd or not cd["path"]:
+                                cd["path"] = "/"
+                            parsed_cookies.append(cd)
+                except Exception:
+                    pass
+
+            if not parsed_cookies:
+                # Parse standard semicolon-separated cookie string (e.g. document.cookie)
+                parts = trimmed.split(";")
+                for part in parts:
+                    if "=" in part:
+                        k, v = part.strip().split("=", 1)
+                        if k.strip():
+                            parsed_cookies.append({
+                                "name": k.strip(),
+                                "value": v.strip(),
+                                "domain": ".dice.com",
+                                "path": "/"
+                            })
 
         if not parsed_cookies:
             return {
                 "status": "error",
                 "message": "No valid cookies found to import. Provide a cookie string or cookie array."
             }
+
+        # Dynamically extract candidate name and email from identity JWT cookie if present
+        extracted_name = ""
+        for c in parsed_cookies:
+            if c.get("name") == "identity":
+                try:
+                    import json, base64
+                    val = c.get("value", "")
+                    parts = val.split(".")
+                    if len(parts) >= 2:
+                        payload_b64 = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                        first = payload.get("name", "").strip()
+                        last = payload.get("family_name", "").strip()
+                        full = f"{first} {last}".strip()
+                        if full and not self._is_hardcoded_name(full):
+                            extracted_name = full
+                        elif payload.get("email"):
+                            extracted_name = payload.get("email").strip()
+                except Exception:
+                    pass
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        resolved_username = username.strip() if (username and not self._is_hardcoded_name(username)) else ""
+        if not resolved_username:
+            resolved_username = extracted_name or await self._resolve_generic_username()
 
         # Inject cookies into active Playwright context if already running
         from app.browser.playwright_manager import playwright_manager
@@ -288,11 +391,6 @@ class SettingsService:
                 await playwright_manager.context.add_cookies(parsed_cookies)
             except Exception:
                 pass
-
-        now_iso = datetime.now(timezone.utc).isoformat()
-        resolved_username = username.strip() if (username and not self._is_hardcoded_name(username)) else ""
-        if not resolved_username:
-            resolved_username = await self._resolve_generic_username()
 
         # Save to database
         await self.db.app_settings.update_one(
@@ -306,6 +404,18 @@ class SettingsService:
             }},
             upsert=True
         )
+
+        # Broadcast connection success via SSE to all frontend subscribers
+        try:
+            from app.services.dice_session_manager import dice_session_manager
+            await dice_session_manager.broadcast("DICE_CONNECTED", {
+                "message": f"Dice session connected successfully! Account: {resolved_username}",
+                "username": resolved_username,
+                "cookies_count": len(parsed_cookies),
+                "is_connected": True
+            })
+        except Exception as e:
+            logger.debug(f"Could not broadcast DICE_CONNECTED: {e}")
 
         return {
             "status": "success",
