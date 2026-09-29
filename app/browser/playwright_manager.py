@@ -35,9 +35,11 @@ class PlaywrightManager:
 
             app_settings = await settings_service.get_settings()
             headless_env = os.environ.get("HEADLESS_BROWSER")
+            has_display = sys.platform == "win32" or bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
             if headless_env is not None:
                 headless = headless_env.lower() in ("true", "1", "yes")
-            elif sys.platform != "win32":
+            elif not has_display:
                 headless = True
             else:
                 headless = app_settings.headless_browser
@@ -45,12 +47,15 @@ class PlaywrightManager:
             if not self.playwright:
                 self.playwright = await async_playwright().start()
 
-            # Check for system Chrome
+            # Check for system Chrome across Windows and Linux
             channel = None
             chrome_paths = [
                 Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
                 Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
                 Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+                Path("/usr/bin/google-chrome"),
+                Path("/usr/bin/chromium"),
+                Path("/usr/bin/chromium-browser"),
             ]
             if any(p.exists() for p in chrome_paths):
                 channel = "chrome"
@@ -61,6 +66,7 @@ class PlaywrightManager:
                 "--disable-infobars",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
+                "--disable-setuid-sandbox",
             ]
             if not headless:
                 args.append("--start-maximized")
@@ -83,6 +89,12 @@ class PlaywrightManager:
                         cmd = 'Get-CimInstance Win32_Process -Filter "Name = \'chrome.exe\'" | Where-Object { $_.CommandLine -like "*browser_profile*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }'
                         enc = base64.b64encode(cmd.encode("utf-16le")).decode("ascii")
                         subprocess.run(["powershell", "-NoProfile", "-EncodedCommand", enc], capture_output=True, timeout=5)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        import subprocess
+                        subprocess.run(["pkill", "-f", "browser_profile"], capture_output=True, timeout=3)
                     except Exception:
                         pass
 

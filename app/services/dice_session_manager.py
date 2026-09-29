@@ -93,21 +93,23 @@ class DiceSessionManager:
         Starts an interactive browser login session.
         If a session is already active or in progress, re-focuses the page.
         """
-        headless_env = os.environ.get("HEADLESS_BROWSER")
-        is_headless = headless_env.lower() in ("true", "1", "yes") if headless_env else (sys.platform != "win32")
+        is_headless = playwright_manager.headless
 
         if is_headless:
-            logger.info("start_interactive_login requested in headless mode.")
+            logger.info("start_interactive_login requested in headless/cloud mode.")
             status = await settings_service.get_dice_status(check_live=True)
             if status.get("is_connected"):
                 return {
                     "status": "success",
+                    "login_url": "https://www.dice.com/dashboard/login",
                     "message": "Dice session is already active in the cloud environment.",
-                    "is_connected": True
+                    "is_connected": True,
+                    "cloud_mode": True
                 }
             return {
-                "status": "warning",
-                "message": "Backend is running in headless cloud mode without a physical display. Please use the Session Importer.",
+                "status": "success",
+                "login_url": "https://www.dice.com/dashboard/login",
+                "message": "Opening Dice login in new tab. Complete sign in, then use Session Importer to sync credentials.",
                 "is_connected": False,
                 "cloud_mode": True
             }
@@ -119,6 +121,7 @@ class DiceSessionManager:
                     await self._active_page.bring_to_front()
                     return {
                         "status": "success",
+                        "login_url": "https://www.dice.com/dashboard/login",
                         "message": "Dice login window is already open. Please complete sign in.",
                         "manager_status": self._status
                     }
@@ -151,6 +154,7 @@ class DiceSessionManager:
 
                 return {
                     "status": "success",
+                    "login_url": "https://www.dice.com/dashboard/login",
                     "message": "Browser opened to Dice login page.",
                     "manager_status": "WAITING_FOR_LOGIN"
                 }
