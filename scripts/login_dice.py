@@ -77,10 +77,27 @@ async def main():
         except EOFError:
             await asyncio.sleep(10)
 
-        print("\nSaving session cookies to profile directory...")
+        print("\nExtracting authenticated session cookies...")
+        cookies = await context.cookies()
+        dice_cookies = [c for c in cookies if "dice.com" in c.get("domain", "")]
+        print(f"Found {len(dice_cookies)} Dice cookies.")
+
+        print("Saving session cookies to profile directory...")
         await context.close()
+
+        # Sync cookies to MongoDB app_settings for instant backend verification
+        try:
+            from app.database import connect_db, close_db
+            from app.services.settings_service import settings_service
+            await connect_db()
+            import_res = await settings_service.import_dice_session(cookies=dice_cookies)
+            print(f"[SUCCESS] {import_res.get('message', 'Session synced to MongoDB!')}")
+            await close_db()
+        except Exception as e:
+            print(f"[NOTICE] Could not sync cookies to database: {e}")
+
         print("[SUCCESS] Session saved! Your Dice account is now connected.")
-        print("The automation will now run with your authenticated Dice session.")
+        print("The backend automation will now run with your authenticated Dice session.")
 
 if __name__ == "__main__":
     asyncio.run(main())

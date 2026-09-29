@@ -20,8 +20,30 @@ async def lifespan(app: FastAPI):
         print("[Dice-Automation] Connected to MongoDB.")
     except Exception as e:
         print(f"[Dice-Automation] Error connecting to MongoDB: {e}")
+
+    # Startup: Verify Dice session and display current status
+    try:
+        from app.services.settings_service import settings_service
+        await settings_service.verify_session_on_startup()
+    except Exception as e:
+        print(f"[Dice-Automation] Notice: Could not verify Dice session on startup: {e}")
+
     yield
-    # Shutdown
+
+    # Shutdown: Close browser context, cancel active login supervisors, and close MongoDB
+    try:
+        from app.services.dice_session_manager import dice_session_manager
+        await dice_session_manager.cleanup()
+    except Exception as e:
+        print(f"[Dice-Automation] Error cleaning up session manager: {e}")
+
+    try:
+        from app.browser.playwright_manager import playwright_manager
+        await playwright_manager.close()
+        print("[Dice-Automation] Browser context closed.")
+    except Exception as e:
+        print(f"[Dice-Automation] Error closing browser context: {e}")
+
     await close_db()
     print("[Dice-Automation] Disconnected from MongoDB.")
 
@@ -76,9 +98,13 @@ app.include_router(settings_api.router, prefix="/api", include_in_schema=False)
 
 @app.get("/")
 async def root():
+    from app.services.settings_service import settings_service
+    dice_status = await settings_service.get_dice_status(check_live=False)
     return {
         "status": "healthy",
         "message": "Dice Job Application Automation API is running",
+        "dice_session_connected": dice_status.get("is_connected", False),
+        "dice_username": dice_status.get("username", ""),
         "docs": "/docs",
         "health": "/health"
     }
@@ -88,9 +114,19 @@ async def root():
 async def health_check():
     db = get_database()
     db_status = "connected" if db is not None else "disconnected"
+    from app.services.settings_service import settings_service
+    dice_status = await settings_service.get_dice_status(check_live=False)
+    is_connected = dice_status.get("is_connected", False)
     return {
         "status": "healthy",
         "database": db_status,
+        "dice_session": {
+            "is_connected": is_connected,
+            "status": "Connected" if is_connected else "Disconnected",
+            "username": dice_status.get("username", ""),
+            "cookies_count": dice_status.get("cookies_count", 0),
+            "last_verified": dice_status.get("last_verified")
+        },
         "mode": "Full MVP Engine"
     }
 

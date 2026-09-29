@@ -77,7 +77,7 @@ CANDIDATE RESUMES LIBRARY (~40 profiles):
 CRITICAL RULES:
 1. Do NOT fabricate or hallucinate skills that are not explicitly present in the candidate's resume.
 2. Select the single best matching resume ID (`recommended_resume_id`).
-3. Set `recommended_resume_name` to the exact candidate's `display_name` from the library (e.g. "Veera AzureDevOpsEngineer (Veera-AzureDevOpsEngineer.docx)"). Do NOT just output the personal name "Veera Sekhar".
+3. Set `recommended_resume_name` to the exact candidate's `display_name` from the library (e.g. "Candidate AzureDevOpsEngineer (Candidate-AzureDevOpsEngineer.docx)"). Do NOT just output the personal candidate name.
 4. Calculate a realistic match percentage (0 to 100) based on required skills coverage and role alignment.
 5. List matched_skills (explicitly present in both JD and selected resume).
 6. List partial_matches (related skills or preferred skills present).

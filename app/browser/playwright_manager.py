@@ -67,14 +67,26 @@ class PlaywrightManager:
 
             viewport = None if not headless else {"width": 1280, "height": 800}
 
-            # Remove any stale lock files leftover from previous crashes or ungraceful container shutdowns
-            for lock_name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
-                lock_file = self.profile_dir / lock_name
-                try:
-                    if lock_file.exists() or lock_file.is_symlink():
-                        lock_file.unlink()
-                except Exception:
-                    pass
+            def _clean_stale_locks():
+                for lock_name in ("SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"):
+                    lock_file = self.profile_dir / lock_name
+                    try:
+                        if lock_file.exists() or lock_file.is_symlink():
+                            lock_file.unlink()
+                    except Exception:
+                        pass
+
+            def _clean_orphaned_chrome():
+                if sys.platform == "win32":
+                    try:
+                        import subprocess, base64
+                        cmd = 'Get-CimInstance Win32_Process -Filter "Name = \'chrome.exe\'" | Where-Object { $_.CommandLine -like "*browser_profile*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }'
+                        enc = base64.b64encode(cmd.encode("utf-16le")).decode("ascii")
+                        subprocess.run(["powershell", "-NoProfile", "-EncodedCommand", enc], capture_output=True, timeout=5)
+                    except Exception:
+                        pass
+
+            _clean_stale_locks()
 
             launch_opts = {
                 "user_data_dir": str(self.profile_dir),
@@ -94,7 +106,13 @@ class PlaywrightManager:
                     self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
             except Exception as e:
                 logger.warning(f"Initial browser launch failed ({e}). Retrying with default Chromium...")
-                self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
+                _clean_orphaned_chrome()
+                _clean_stale_locks()
+                try:
+                    self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
+                except Exception as retry_err:
+                    logger.error(f"Fallback Chromium launch failed: {retry_err}")
+                    raise
 
             # Restore saved cookies from MongoDB if available
             try:

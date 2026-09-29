@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter
 from app.database import get_database
 from app.schemas.user_profile import UserProfileSchema, AppSettingsSchema
@@ -34,46 +35,26 @@ class SessionImportPayload(BaseModel):
 async def update_app_settings(settings: AppSettingsSchema):
     return await settings_service.update_settings(settings)
 
+from fastapi.responses import StreamingResponse
+from app.services.dice_session_manager import dice_session_manager
+
 @router.post("/settings/open-dice-login")
 async def open_dice_login():
     """Opens a visible browser page to the Dice login screen (local) or provides instructions (cloud)."""
-    from app.browser.playwright_manager import playwright_manager
-    from fastapi import HTTPException
+    return await dice_session_manager.start_interactive_login()
 
-    headless_env = os.environ.get("HEADLESS_BROWSER")
-    is_headless = headless_env.lower() in ("true", "1", "yes") if headless_env else (sys.platform != "win32")
-
-    if is_headless:
-        # In cloud/headless mode, the server cannot open a desktop window on the client's screen.
-        logger.info("open-dice-login called in headless cloud mode.")
-        try:
-            status = await settings_service.get_dice_status(check_live=True)
-            if status.get("is_connected"):
-                return {
-                    "status": "success",
-                    "message": "Dice session is already active in the cloud!",
-                    "is_connected": True
-                }
-        except Exception:
-            pass
-
-        return {
-            "status": "warning",
-            "message": "Backend is running on a cloud server without a display. A browser window cannot open on your computer from the server. Please import your Dice session cookies via the Session Importer.",
-            "is_connected": False,
-            "cloud_mode": True
+@router.get("/settings/dice-session/stream")
+async def stream_dice_session():
+    """Real-time Server-Sent Events (SSE) stream for Dice session connection status."""
+    return StreamingResponse(
+        dice_session_manager.event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
         }
-
-    try:
-        page = await playwright_manager.get_new_page()
-        await page.goto("https://www.dice.com/dashboard/login", wait_until="domcontentloaded", timeout=15000)
-        return {"status": "success", "message": "Browser opened to Dice login page"}
-    except Exception as e:
-        logger.error(f"Error opening Dice login page: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Could not open browser: {str(e)}"
-        )
+    )
 
 @router.post("/settings/import-dice-session")
 async def import_dice_session(payload: SessionImportPayload):

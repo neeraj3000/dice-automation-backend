@@ -20,8 +20,6 @@ class UserProfileSchema(BaseModel):
 
 class AppSettingsSchema(BaseModel):
     model_config = ConfigDict(extra="allow")
-    openai_api_key: Optional[str] = ""
-    openai_model: str = "gpt-4o-mini"
     max_jobs_per_search: int = 25
     max_applications_per_run: int = 10
     default_mode: str = "PREPARE" # ANALYZE, PREPARE, APPLY
