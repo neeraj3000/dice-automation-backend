@@ -91,13 +91,17 @@ async def main():
             from app.services.settings_service import settings_service
             await connect_db()
             import_res = await settings_service.import_dice_session(cookies=dice_cookies)
-            print(f"[SUCCESS] {import_res.get('message', 'Session synced to MongoDB!')}")
+            if import_res.get("is_connected"):
+                print(f"[SUCCESS] {import_res.get('message', 'Session synced to MongoDB!')}")
+                print(f"[ACCOUNT] Connected candidate: {import_res.get('username')}")
+                print("[SUCCESS] Session saved! Your Dice account is now actively connected.")
+                print("The backend automation will now run with your authenticated Dice session.")
+            else:
+                print(f"[WARNING] {import_res.get('message', 'Cookies saved, but session verification did not succeed.')}")
+                print("Please verify your Dice login credentials and rerun if needed.")
             await close_db()
         except Exception as e:
             print(f"[NOTICE] Could not sync cookies to database: {e}")
-
-        print("[SUCCESS] Session saved! Your Dice account is now connected.")
-        print("The backend automation will now run with your authenticated Dice session.")
 
 if __name__ == "__main__":
     asyncio.run(main())

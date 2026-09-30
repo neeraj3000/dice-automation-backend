@@ -7,6 +7,146 @@ from app.schemas.user_profile import UserProfileSchema, AppSettingsSchema
 
 logger = logging.getLogger(__name__)
 
+def sanitize_cookie_for_playwright(c: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Sanitizes any cookie dictionary into the exact schema required by Playwright's add_cookies().
+    Strips browser extension metadata (e.g., hostOnly, session, storeId), normalizes sameSite to
+    case-sensitive 'Strict'|'Lax'|'None', converts expirationDate/expires to float seconds,
+    and ensures clean domains and paths.
+    """
+    if not isinstance(c, dict):
+        return None
+    name = str(c.get("name", "")).strip()
+    value = str(c.get("value", ""))
+    if not name:
+        return None
+
+    clean: Dict[str, Any] = {
+        "name": name,
+        "value": value,
+    }
+
+    # Normalize domain
+    domain = str(c.get("domain", "") or "").strip()
+    if domain:
+        if "://" in domain:
+            domain = domain.split("://", 1)[1].split("/", 1)[0].split(":", 1)[0]
+        domain = domain.split("/", 1)[0].split(":", 1)[0]
+        clean["domain"] = domain
+    else:
+        clean["domain"] = ".dice.com"
+
+    # Normalize path
+    path = str(c.get("path", "") or "").strip()
+    clean["path"] = path if path else "/"
+
+    # Normalize sameSite (Playwright strictly requires 'Strict', 'Lax', or 'None')
+    same_site = c.get("sameSite")
+    if same_site and isinstance(same_site, str):
+        ss_lower = same_site.strip().lower()
+        if ss_lower == "strict":
+            clean["sameSite"] = "Strict"
+        elif ss_lower == "lax":
+            clean["sameSite"] = "Lax"
+        elif ss_lower in ("none", "no_restriction"):
+            clean["sameSite"] = "None"
+
+    # Normalize expires / expirationDate
+    exp = c.get("expires") if c.get("expires") is not None else c.get("expirationDate")
+    if exp is not None:
+        try:
+            exp_float = float(exp)
+            if exp_float > 1e11:  # Timestamp in milliseconds
+                exp_float = exp_float / 1000.0
+            if exp_float > 0 or exp_float == -1:
+                clean["expires"] = exp_float
+        except (ValueError, TypeError):
+            pass
+
+    # Normalize booleans
+    if "httpOnly" in c:
+        clean["httpOnly"] = bool(c["httpOnly"])
+    if "secure" in c:
+        clean["secure"] = bool(c["secure"])
+
+    return clean
+
+
+def parse_raw_cookie_input(raw: str) -> list:
+    """
+    Parses cookies from any format:
+    - JSON array of cookies [{name, value, ...}]
+    - JSON object with 'cookies' array or key-value pairs
+    - cURL command copied from DevTools (-H 'cookie: ...')
+    - Netscape HTTP Cookie File format (tab-separated)
+    - Standard semicolon-separated cookie string (e.g. document.cookie)
+    """
+    cookies = []
+    trimmed = raw.strip()
+
+    # 1. cURL header check
+    import re
+    curl_match = re.search(r'-H\s+[\'"][Cc]ookie:\s*([^\'"]+)[\'"]', trimmed)
+    if curl_match:
+        trimmed = curl_match.group(1).strip()
+    elif trimmed.lower().startswith("cookie:"):
+        trimmed = trimmed[7:].strip()
+
+    # 2. JSON check
+    if trimmed.startswith("{") or trimmed.startswith("["):
+        try:
+            import json
+            data = json.loads(trimmed)
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict):
+                        cookies.append(item)
+            elif isinstance(data, dict):
+                if "cookies" in data and isinstance(data["cookies"], list):
+                    cookies.extend(data["cookies"])
+                elif "name" in data and "value" in data:
+                    cookies.append(data)
+                else:
+                    for k, v in data.items():
+                        if isinstance(v, str):
+                            cookies.append({"name": k, "value": v, "domain": ".dice.com", "path": "/"})
+            if cookies:
+                return cookies
+        except Exception:
+            pass
+
+    # 3. Netscape format (tab-separated lines)
+    if "\t" in trimmed and not trimmed.startswith("http"):
+        for line in trimmed.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 7:
+                cookies.append({
+                    "domain": parts[0],
+                    "path": parts[2],
+                    "secure": parts[3].lower() == "true",
+                    "expires": float(parts[4]) if parts[4].replace(".", "", 1).isdigit() else -1,
+                    "name": parts[5],
+                    "value": parts[6]
+                })
+        if cookies:
+            return cookies
+
+    # 4. Standard semicolon separated: foo=bar; baz=qux
+    parts = trimmed.split(";")
+    for part in parts:
+        if "=" in part:
+            k, v = part.strip().split("=", 1)
+            k = k.strip()
+            v = v.strip()
+            if k:
+                cookies.append({"name": k, "value": v, "domain": ".dice.com", "path": "/"})
+
+    return cookies
+
+
 class SettingsService:
     @property
     def db(self):
@@ -81,8 +221,8 @@ class SettingsService:
     async def _verify_cookies_via_http(self, cookies: list) -> Dict[str, Any]:
         """
         Production-grade lightweight session verification using HTTP requests.
-        Pings the authenticated Dice endpoint with the cookies, avoiding the
-        overhead, process lock conflicts, and latency of launching a full browser.
+        Pings authenticated Dice endpoints with the cookies, avoiding browser overhead.
+        Accurately detects when sessions are redirected to login/signin (i.e. expired).
         """
         if not cookies:
             return {"is_connected": False, "reason": "No cookies provided"}
@@ -96,7 +236,7 @@ class SettingsService:
                 if name and value:
                     cookie_jar[name] = value
 
-        if len(cookie_jar) < 3:
+        if len(cookie_jar) < 2:
             return {"is_connected": False, "reason": "Insufficient Dice cookies found"}
 
         headers = {
@@ -122,36 +262,36 @@ class SettingsService:
                     pass
 
         auth_tokens_to_check = (
-            "identity", "refreshtoken", "cms_cookie", "candidate_id",
-            "peopleid", "dli", "dice_member_id", "dice_session",
-            "dice-user-id", "_oauth2_proxy", "session", "cognito"
+            "identity", "refreshtoken", "candidate_id", "peopleid",
+            "dice_member_id", "dice_session", "dice-user-id", "_oauth2_proxy"
         )
         has_known_auth_token = has_valid_identity or any(
-            any(t in k.lower() for t in auth_tokens_to_check)
+            any(t == k.lower() or t in k.lower() for t in auth_tokens_to_check)
             for k in cookie_jar
         )
 
         try:
             import httpx
             async with httpx.AsyncClient(headers=headers, cookies=cookie_jar, follow_redirects=False, timeout=8.0) as client:
-                resp = await client.get("https://www.dice.com/home")
+                # Test primary candidate dashboard endpoint
+                resp = await client.get("https://www.dice.com/dashboard")
 
-                # If redirected to login/signin, check if identity is still valid
+                # If redirected, check where it redirects to
                 if resp.status_code in (301, 302, 303, 307, 308):
                     location = resp.headers.get("location", "").lower()
-                    if "/home" in location or "/dashboard" in location:
-                        return {"is_connected": True, "reason": "Active session"}
-                    if "login" in location or "signin" in location:
-                        if has_known_auth_token:
-                            return {"is_connected": True, "reason": "Active session (verified candidate credentials)"}
+                    if any(bad in location for bad in ("login", "signin", "auth0", "authorize")):
                         return {"is_connected": False, "reason": "Session expired (redirected to login)"}
+                    if any(good in location for good in ("/home", "/dashboard", "/profile", "/jobs", "/candidates")):
+                        return {"is_connected": True, "reason": "Active session"}
 
                 if resp.status_code == 200:
                     text = resp.text[:5000].lower()
-                    if "sign in" in text and "create account" in text and "/dashboard/login" in text:
-                        if not has_known_auth_token:
-                            return {"is_connected": False, "reason": "Login page rendered"}
+                    if ("/dashboard/login" in text or "login.dice.com" in text) and "sign in" in text:
+                        return {"is_connected": False, "reason": "Login page rendered (session expired)"}
                     return {"is_connected": True, "reason": "Active session"}
+
+                if resp.status_code in (401, 403):
+                    return {"is_connected": False, "reason": f"Authentication required (HTTP {resp.status_code})"}
 
                 if has_known_auth_token:
                     return {"is_connected": True, "reason": "Active session (verified candidate token)"}
@@ -303,64 +443,71 @@ class SettingsService:
         self,
         cookies: Optional[list] = None,
         cookie_string: Optional[str] = None,
-        username: Optional[str] = None
+        username: Optional[str] = None,
+        local_storage: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        parsed_cookies = []
+        raw_cookies: list = []
 
         if cookies:
-            for c in cookies:
-                if isinstance(c, dict):
-                    cookie_dict = dict(c)
-                    if "domain" not in cookie_dict or not cookie_dict["domain"]:
-                        cookie_dict["domain"] = ".dice.com"
-                    if "path" not in cookie_dict or not cookie_dict["path"]:
-                        cookie_dict["path"] = "/"
-                    parsed_cookies.append(cookie_dict)
+            if isinstance(cookies, list):
+                raw_cookies.extend(cookies)
+            elif isinstance(cookies, dict):
+                raw_cookies.append(cookies)
 
-        elif cookie_string:
-            trimmed = cookie_string.strip()
-            if trimmed.lower().startswith("cookie:"):
-                trimmed = trimmed[7:].strip()
-            # If user pasted JSON array or object
-            if trimmed.startswith("[") or trimmed.startswith("{"):
-                try:
-                    import json
-                    parsed_json = json.loads(trimmed)
-                    items = parsed_json if isinstance(parsed_json, list) else [parsed_json]
-                    for item in items:
-                        if isinstance(item, dict) and item.get("name") and item.get("value"):
-                            cd = dict(item)
-                            if "domain" not in cd or not cd["domain"]:
-                                cd["domain"] = ".dice.com"
-                            if "path" not in cd or not cd["path"]:
-                                cd["path"] = "/"
-                            parsed_cookies.append(cd)
-                except Exception:
-                    pass
+        if cookie_string and isinstance(cookie_string, str):
+            parsed = parse_raw_cookie_input(cookie_string)
+            raw_cookies.extend(parsed)
 
-            if not parsed_cookies:
-                # Parse standard semicolon-separated cookie string (e.g. document.cookie)
-                parts = trimmed.split(";")
-                for part in parts:
-                    if "=" in part:
-                        k, v = part.strip().split("=", 1)
-                        if k.strip():
-                            parsed_cookies.append({
-                                "name": k.strip(),
-                                "value": v.strip(),
-                                "domain": ".dice.com",
-                                "path": "/"
-                            })
+        # Handle localStorage payload (e.g. AWS Cognito tokens exported from browser console)
+        if local_storage and isinstance(local_storage, dict):
+            id_token = None
+            refresh_token = None
+            access_token = None
+            last_user = None
 
-        if not parsed_cookies:
+            for k, v in local_storage.items():
+                if not isinstance(v, str):
+                    continue
+                k_lower = k.lower()
+                if "idtoken" in k_lower:
+                    id_token = v
+                elif "refreshtoken" in k_lower:
+                    refresh_token = v
+                elif "accesstoken" in k_lower:
+                    access_token = v
+                elif "lastauthuser" in k_lower:
+                    last_user = v
+
+            if id_token:
+                raw_cookies.append({"name": "identity", "value": id_token, "domain": ".dice.com", "path": "/"})
+            if refresh_token:
+                raw_cookies.append({"name": "refreshToken", "value": refresh_token, "domain": ".dice.com", "path": "/"})
+            if access_token:
+                raw_cookies.append({"name": "access", "value": access_token, "domain": ".dice.com", "path": "/"})
+            if last_user and not username:
+                username = last_user
+
+        # Sanitize and deduplicate cookies for Playwright
+        sanitized_cookies = []
+        seen_keys = set()
+        for c in raw_cookies:
+            clean = sanitize_cookie_for_playwright(c)
+            if clean:
+                dedup_key = (clean["name"].lower(), clean.get("domain", "").lower(), clean.get("path", "/"))
+                if dedup_key not in seen_keys:
+                    seen_keys.add(dedup_key)
+                    sanitized_cookies.append(clean)
+
+        if not sanitized_cookies:
             return {
                 "status": "error",
-                "message": "No valid cookies found to import. Provide a cookie string or cookie array."
+                "message": "No valid cookies found to import. Provide a cookie string, JSON array, or localStorage tokens.",
+                "is_connected": False
             }
 
         # Dynamically extract candidate name and email from identity JWT cookie if present
         extracted_name = ""
-        for c in parsed_cookies:
+        for c in sanitized_cookies:
             if c.get("name") == "identity":
                 try:
                     import json, base64
@@ -384,47 +531,68 @@ class SettingsService:
         if not resolved_username:
             resolved_username = extracted_name or await self._resolve_generic_username()
 
-        # Inject cookies into active Playwright context if already running
-        from app.browser.playwright_manager import playwright_manager
-        if playwright_manager.context:
-            try:
-                await playwright_manager.context.add_cookies(parsed_cookies)
-            except Exception:
-                pass
+        # Perform live HTTP verification of the imported cookies
+        is_connected = True
+        verify_reason = "Active session"
+        if len(sanitized_cookies) >= 3:
+            verify_result = await self._verify_cookies_via_http(sanitized_cookies)
+            if verify_result.get("reason") == "Session expired (redirected to login)":
+                is_connected = False
+                verify_reason = verify_result.get("reason", "Session expired")
+            else:
+                is_connected = verify_result.get("is_connected", True)
+                verify_reason = verify_result.get("reason", "Active session")
 
-        # Save to database
+        # Inject sanitized cookies into active Playwright context if running
+        from app.browser.playwright_manager import playwright_manager
+        try:
+            await playwright_manager.add_cookies_safely(sanitized_cookies)
+        except Exception as e:
+            logger.debug(f"Could not inject cookies into active browser context: {e}")
+
+        # Save sanitized cookies and status to database
         await self.db.app_settings.update_one(
             {},
             {"$set": {
-                "saved_cookies": parsed_cookies,
-                "dice_session_connected": True,
-                "dice_username": resolved_username,
-                "dice_cookies_count": len(parsed_cookies),
+                "saved_cookies": sanitized_cookies,
+                "dice_session_connected": is_connected,
+                "dice_username": resolved_username if is_connected else "",
+                "dice_cookies_count": len(sanitized_cookies),
                 "dice_last_verified": now_iso
             }},
             upsert=True
         )
 
-        # Broadcast connection success via SSE to all frontend subscribers
-        try:
-            from app.services.dice_session_manager import dice_session_manager
-            await dice_session_manager.broadcast("DICE_CONNECTED", {
-                "message": f"Dice session connected successfully! Account: {resolved_username}",
-                "username": resolved_username,
-                "cookies_count": len(parsed_cookies),
-                "is_connected": True
-            })
-        except Exception as e:
-            logger.debug(f"Could not broadcast DICE_CONNECTED: {e}")
+        if is_connected:
+            # Broadcast connection success via SSE to all frontend subscribers
+            try:
+                from app.services.dice_session_manager import dice_session_manager
+                await dice_session_manager.broadcast("DICE_CONNECTED", {
+                    "message": f"Dice session connected successfully! Account: {resolved_username}",
+                    "username": resolved_username,
+                    "cookies_count": len(sanitized_cookies),
+                    "is_connected": True
+                })
+            except Exception as e:
+                logger.debug(f"Could not broadcast DICE_CONNECTED: {e}")
 
-        return {
-            "status": "success",
-            "message": f"Successfully imported {len(parsed_cookies)} session cookies! Dice is now connected.",
-            "is_connected": True,
-            "username": resolved_username,
-            "cookies_count": len(parsed_cookies),
-            "last_verified": now_iso
-        }
+            return {
+                "status": "success",
+                "message": f"Successfully connected {len(sanitized_cookies)} session cookies! Dice account: {resolved_username}.",
+                "is_connected": True,
+                "username": resolved_username,
+                "cookies_count": len(sanitized_cookies),
+                "last_verified": now_iso
+            }
+        else:
+            return {
+                "status": "success",
+                "message": f"Imported {len(sanitized_cookies)} cookies, but Dice verification noted: {verify_reason}. Please make sure you are signed in on Dice.",
+                "is_connected": False,
+                "username": resolved_username,
+                "cookies_count": len(sanitized_cookies),
+                "last_verified": now_iso
+            }
 
 settings_service = SettingsService()
 

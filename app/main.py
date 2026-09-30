@@ -1,7 +1,14 @@
 import sys
 import os
+from pathlib import Path
 import asyncio
 from contextlib import asynccontextmanager
+
+# Ensure virtual environment site-packages is in sys.path even when spawned via Windows multiprocessing
+backend_dir = Path(__file__).resolve().parent.parent
+venv_site_packages = backend_dir / ".venv" / "Lib" / "site-packages"
+if venv_site_packages.exists() and str(venv_site_packages) not in sys.path:
+    sys.path.insert(0, str(venv_site_packages))
 
 if sys.platform == "win32":
     try:
@@ -74,11 +81,15 @@ allowed_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://www.dice.com",
-    "https://dice.com"
+    "https://dice.com",
+    "https://profile.dice.com",
+    "https://customer.dice.com",
+    "https://login.dice.com",
+    "https://dashboard.dice.com",
 ]
 if cors_origins_env and cors_origins_env != "*":
     for origin in cors_origins_env.split(","):
-        if origin.strip():
+        if origin.strip() and origin.strip() not in allowed_origins:
             allowed_origins.append(origin.strip())
 
 cors_kwargs = {
@@ -91,6 +102,7 @@ if cors_origins_env == "*" or not cors_origins_env:
     cors_kwargs["allow_origin_regex"] = r"^https?://.*"
 else:
     cors_kwargs["allow_origins"] = allowed_origins
+    cors_kwargs["allow_origin_regex"] = r"^https?://([a-zA-Z0-9-]+\.)*dice\.com(:[0-9]+)?$"
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
 

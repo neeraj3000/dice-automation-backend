@@ -30,6 +30,7 @@ class SessionImportPayload(BaseModel):
     cookies: Optional[List[Dict[str, Any]]] = None
     cookie_string: Optional[str] = None
     username: Optional[str] = None
+    local_storage: Optional[Dict[str, Any]] = None
 
 @router.put("/settings", response_model=AppSettingsSchema)
 async def update_app_settings(settings: AppSettingsSchema):
@@ -62,7 +63,8 @@ async def import_dice_session(payload: SessionImportPayload):
     return await settings_service.import_dice_session(
         cookies=payload.cookies,
         cookie_string=payload.cookie_string,
-        username=payload.username
+        username=payload.username,
+        local_storage=payload.local_storage
     )
 
 @router.get("/settings/dice-status")

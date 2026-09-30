@@ -19,6 +19,7 @@ class PlaywrightManager:
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
         self._install_lock = asyncio.Lock()
+        self._current_headless: Optional[bool] = None
 
     @property
     def has_display(self) -> bool:
@@ -117,29 +118,73 @@ class PlaywrightManager:
             "has_display": self.has_display
         }
 
-    async def get_context(self) -> BrowserContext:
+    async def add_cookies_safely(self, cookies: list) -> int:
+        """
+        Safely sanitizes and injects cookies into the active browser context.
+        Uses per-cookie fallback so that a single rejected cookie cannot block others.
+        """
+        if not self.context or not cookies:
+            return 0
+
+        from app.services.settings_service import sanitize_cookie_for_playwright
+
+        sanitized = []
+        for c in cookies:
+            clean = sanitize_cookie_for_playwright(c)
+            if clean:
+                sanitized.append(clean)
+
+        if not sanitized:
+            return 0
+
+        # Try bulk insert first
+        try:
+            await self.context.add_cookies(sanitized)
+            return len(sanitized)
+        except Exception as bulk_err:
+            logger.warning(f"Bulk add_cookies failed ({bulk_err}). Falling back to item-by-item injection...")
+
+        success_count = 0
+        for sc in sanitized:
+            try:
+                await self.context.add_cookies([sc])
+                success_count += 1
+            except Exception as single_err:
+                logger.debug(f"Skipping problematic cookie '{sc.get('name')}': {single_err}")
+
+        return success_count
+
+    async def get_context(self, headless: Optional[bool] = None) -> BrowserContext:
         async with self._lock:
+            # Determine target headless mode
+            if headless is not None:
+                target_headless = headless
+            else:
+                app_settings = await settings_service.get_settings()
+                headless_env = os.environ.get("HEADLESS_BROWSER")
+                if headless_env is not None:
+                    target_headless = headless_env.lower() in ("true", "1", "yes")
+                elif not self.has_display:
+                    target_headless = True
+                else:
+                    target_headless = app_settings.headless_browser
+
             if self.context:
                 try:
-                    # Check if context was closed
                     if hasattr(self.context, "is_closed") and self.context.is_closed():
                         self.context = None
+                    elif self._current_headless is not None and self._current_headless != target_headless:
+                        logger.info(f"Switching browser context from headless={self._current_headless} to headless={target_headless}")
+                        try:
+                            await self.context.close()
+                        except Exception:
+                            pass
+                        self.context = None
                     else:
-                        # Verify context is responsive
                         _ = self.context.pages
                         return self.context
                 except Exception:
                     self.context = None
-
-            app_settings = await settings_service.get_settings()
-            headless_env = os.environ.get("HEADLESS_BROWSER")
-
-            if headless_env is not None:
-                headless = headless_env.lower() in ("true", "1", "yes")
-            elif not self.has_display:
-                headless = True
-            else:
-                headless = app_settings.headless_browser
 
             if not self.playwright:
                 self.playwright = await async_playwright().start()
@@ -180,10 +225,10 @@ class PlaywrightManager:
                 "--disable-renderer-backgrounding",
                 "--mute-audio",
             ]
-            if not headless:
+            if not target_headless:
                 args.append("--start-maximized")
 
-            viewport = None if not headless else {"width": 1280, "height": 800}
+            viewport = None if not target_headless else {"width": 1280, "height": 800}
 
             def _clean_stale_locks():
                 for lock_name in ("SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"):
@@ -210,11 +255,13 @@ class PlaywrightManager:
                     except Exception:
                         pass
 
+            # Proactively clean stale locks and orphaned profile processes before launch
+            _clean_orphaned_chrome()
             _clean_stale_locks()
 
             launch_opts = {
                 "user_data_dir": str(self.profile_dir),
-                "headless": headless,
+                "headless": target_headless,
                 "args": args,
                 "viewport": viewport,
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -236,43 +283,48 @@ class PlaywrightManager:
                     if installed:
                         _clean_stale_locks()
                         self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
-                        return self.context
+                    else:
+                        raise
+                else:
+                    logger.warning(f"Initial browser launch failed ({e}). Retrying with default Chromium...")
+                    _clean_orphaned_chrome()
+                    _clean_stale_locks()
+                    try:
+                        self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
+                    except Exception as retry_err:
+                        retry_str = str(retry_err)
+                        if "Executable doesn't exist" in retry_str or "playwright install" in retry_str:
+                            logger.warning("Chromium executable missing on retry. Attempting auto-install...")
+                            installed = await self.ensure_browser_installed()
+                            if installed:
+                                _clean_stale_locks()
+                                self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
+                            else:
+                                raise
+                        else:
+                            logger.error(f"Fallback Chromium launch failed: {retry_err}")
+                            raise
 
-                logger.warning(f"Initial browser launch failed ({e}). Retrying with default Chromium...")
-                _clean_orphaned_chrome()
-                _clean_stale_locks()
-                try:
-                    self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
-                except Exception as retry_err:
-                    retry_str = str(retry_err)
-                    if "Executable doesn't exist" in retry_str or "playwright install" in retry_str:
-                        logger.warning("Chromium executable missing on retry. Attempting auto-install...")
-                        installed = await self.ensure_browser_installed()
-                        if installed:
-                            _clean_stale_locks()
-                            self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
-                            return self.context
-                    logger.error(f"Fallback Chromium launch failed: {retry_err}")
-                    raise
+            self._current_headless = target_headless
 
-            # Restore saved cookies from MongoDB if available
+            # Restore saved cookies from MongoDB safely into context
             try:
                 from app.database import get_database
                 db = get_database()
                 if db is not None:
                     settings_doc = await db.app_settings.find_one({})
                     if settings_doc and settings_doc.get("saved_cookies"):
-                        await self.context.add_cookies(settings_doc["saved_cookies"])
-                        logger.info(f"Restored {len(settings_doc['saved_cookies'])} saved Dice cookies from database.")
+                        added = await self.add_cookies_safely(settings_doc["saved_cookies"])
+                        logger.info(f"Restored {added} saved Dice cookies into browser context.")
             except Exception as e:
                 logger.debug(f"Could not restore saved cookies on startup: {e}")
 
             return self.context
 
-    async def get_new_page(self) -> Page:
+    async def get_new_page(self, headless: Optional[bool] = None) -> Page:
         for attempt in range(2):
             try:
-                context = await self.get_context()
+                context = await self.get_context(headless=headless)
                 # Clean up any closed or zombie pages in context to prevent memory leaks in production
                 open_pages = [p for p in context.pages if not p.is_closed()]
                 if len(open_pages) > 3:
@@ -302,6 +354,7 @@ class PlaywrightManager:
                 except Exception:
                     pass
                 self.playwright = None
+            self._current_headless = None
 
 
 playwright_manager = PlaywrightManager()
