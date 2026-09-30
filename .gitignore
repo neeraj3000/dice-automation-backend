@@ -7,7 +7,7 @@ __pycache__/
 
 # Local data & browser session
 .env
-data/browser_profile/
+data/
 *.log
 
 # OS

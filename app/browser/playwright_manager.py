@@ -307,17 +307,15 @@ class PlaywrightManager:
 
             self._current_headless = target_headless
 
-            # Restore saved cookies from MongoDB safely into context
+            # Restore saved cookies from LOCAL session file into context
             try:
-                from app.database import get_database
-                db = get_database()
-                if db is not None:
-                    settings_doc = await db.app_settings.find_one({})
-                    if settings_doc and settings_doc.get("saved_cookies"):
-                        added = await self.add_cookies_safely(settings_doc["saved_cookies"])
-                        logger.info(f"Restored {added} saved Dice cookies into browser context.")
+                local_sess = settings_service.get_local_session()
+                if local_sess and local_sess.get("cookies"):
+                    added = await self.add_cookies_safely(local_sess["cookies"])
+                    if added > 0:
+                        logger.info(f"Restored {added} saved Dice cookies from local session file into browser context.")
             except Exception as e:
-                logger.debug(f"Could not restore saved cookies on startup: {e}")
+                logger.debug(f"Could not restore local session cookies: {e}")
 
             return self.context
 

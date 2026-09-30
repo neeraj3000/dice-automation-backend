@@ -72,6 +72,11 @@ async def get_dice_status(check_live: bool = False):
     """Returns the current Dice account connection status."""
     return await settings_service.get_dice_status(check_live=check_live)
 
+@router.post("/settings/disconnect-dice")
+async def disconnect_dice():
+    """Disconnects the local Dice session, removes local cookies, and resets state."""
+    return await settings_service.disconnect_dice()
+
 @router.get("/settings/browser-status")
 async def get_browser_status():
     """Returns Playwright browser binary presence and environment status."""

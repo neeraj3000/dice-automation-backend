@@ -1,4 +1,5 @@
 import sys
+import json
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -11,14 +12,40 @@ from app.services.settings_service import settings_service
 @pytest.fixture(autouse=True)
 async def setup_db():
     await connect_db()
-    yield
-    # Cleanup test mutations after test execution
+    settings_service.clear_local_session()
+    # Cleanup MongoDB legacy session fields
     try:
         db = get_database()
         if db is not None:
             await db.app_settings.update_one(
                 {},
-                {"$set": {"dice_session_connected": False, "dice_username": "", "dice_cookies_count": 0, "saved_cookies": []}}
+                {"$unset": {
+                    "saved_cookies": "",
+                    "dice_session_connected": "",
+                    "dice_username": "",
+                    "dice_cookies_count": "",
+                    "dice_last_verified": ""
+                }}
+            )
+    except Exception:
+        pass
+
+    yield
+
+    # Cleanup test mutations after test execution
+    settings_service.clear_local_session()
+    try:
+        db = get_database()
+        if db is not None:
+            await db.app_settings.update_one(
+                {},
+                {"$unset": {
+                    "saved_cookies": "",
+                    "dice_session_connected": "",
+                    "dice_username": "",
+                    "dice_cookies_count": "",
+                    "dice_last_verified": ""
+                }}
             )
     except Exception:
         pass
@@ -62,6 +89,15 @@ async def test_session_import_generic_username():
         assert import_data["username"] != "VS (Veera Sekhar)"
         assert len(import_data["username"]) > 0
 
+        # CRITICAL TEST: Verify cookies are saved LOCALLY, NEVER in MongoDB
+        assert settings_service.SESSION_FILE.exists()
+        local_sess = settings_service.get_local_session()
+        assert len(local_sess.get("cookies", [])) > 0
+
+        db = get_database()
+        settings_doc = await db.app_settings.find_one({}) or {}
+        assert "saved_cookies" not in settings_doc, "Cookies MUST NOT be saved to MongoDB!"
+
         # Import with custom generic username
         res2 = await client.post(
             "/settings/import-dice-session",
@@ -69,6 +105,24 @@ async def test_session_import_generic_username():
         )
         assert res2.status_code == 200
         assert res2.json()["username"] == "Alex Johnson"
+
+@pytest.mark.anyio
+async def test_disconnect_dice():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Import first
+        cookies = [{"name": "test_auth_token", "value": "xyz123", "domain": ".dice.com", "path": "/"}]
+        await client.post("/settings/import-dice-session", json={"cookies": cookies, "username": "Test User"})
+        assert settings_service.SESSION_FILE.exists()
+
+        # Disconnect
+        disc_res = await client.post("/settings/disconnect-dice")
+        assert disc_res.status_code == 200
+        assert disc_res.json()["is_connected"] is False
+        assert not settings_service.SESSION_FILE.exists()
+
+        status_res = await client.get("/settings/dice-status")
+        assert status_res.json()["is_connected"] is False
 
 @pytest.mark.anyio
 async def test_verify_session_on_startup():

@@ -1,4 +1,6 @@
 import logging
+import json
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from app.database import get_database
@@ -152,41 +154,191 @@ class SettingsService:
     def db(self):
         return get_database()
 
+    @property
+    def SESSION_FILE(self) -> Path:
+        return settings.DATA_DIR / "dice_session.json"
+
+    @property
+    def PROFILE_FILE(self) -> Path:
+        return settings.DATA_DIR / "user_profile.json"
+
+    def get_local_session(self) -> Dict[str, Any]:
+        """Reads local session state from disk. Never queries MongoDB."""
+        if self.SESSION_FILE.exists():
+            try:
+                with open(self.SESSION_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"Error reading local dice_session.json: {e}")
+        return {}
+
+    def save_local_session(self, session_data: Dict[str, Any]):
+        """Persists session state locally to disk."""
+        try:
+            self.SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.SESSION_FILE, "w", encoding="utf-8") as f:
+                json.dump(session_data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving local dice_session.json: {e}")
+
+    def clear_local_session(self):
+        """Deletes the local session file."""
+        try:
+            if self.SESSION_FILE.exists():
+                self.SESSION_FILE.unlink(missing_ok=True)
+        except Exception as e:
+            logger.debug(f"Error unlinking session file: {e}")
+
+    def get_active_session_email(self) -> str:
+        """Returns the verified email of the currently active local session if present."""
+        sess = self.get_local_session()
+        return (sess.get("email") or "").strip()
+
+    def get_local_profile_data(self) -> Optional[Dict[str, Any]]:
+        """Reads machine-local user profile from disk."""
+        if self.PROFILE_FILE.exists():
+            try:
+                with open(self.PROFILE_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"Error reading local user_profile.json: {e}")
+        return None
+
+    def save_local_profile_data(self, profile_data: Dict[str, Any]):
+        """Persists machine-local user profile to disk."""
+        try:
+            self.PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.PROFILE_FILE, "w", encoding="utf-8") as f:
+                json.dump(profile_data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving local user_profile.json: {e}")
+
+    @property
+    def MACHINE_ID_FILE(self) -> Path:
+        return settings.DATA_DIR / "machine_id.txt"
+
+    def get_machine_id(self) -> str:
+        """Returns a persistent, unique identifier for this machine/runner host."""
+        if self.MACHINE_ID_FILE.exists():
+            try:
+                mid = self.MACHINE_ID_FILE.read_text(encoding="utf-8").strip()
+                if mid:
+                    return mid
+            except Exception:
+                pass
+        import uuid
+        mid = str(uuid.uuid4())
+        try:
+            self.MACHINE_ID_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self.MACHINE_ID_FILE.write_text(mid, encoding="utf-8")
+        except Exception as e:
+            logger.debug(f"Could not persist machine_id: {e}")
+        return mid
+
     async def get_profile(self) -> UserProfileSchema:
-        doc = await self.db.user_profile.find_one({})
-        if not doc:
-            return UserProfileSchema()
-        doc.pop("_id", None)
-        return UserProfileSchema(**doc)
+        """
+        Retrieves user profile prioritizing local machine storage.
+        If backed up to MongoDB, uses machine-specific partitioning so laptops never cross-contaminate.
+        Automatically synchronizes email and name with the active authenticated local Dice session.
+        """
+        local_data = self.get_local_profile_data()
+        if not local_data and self.db is not None:
+            try:
+                mid = self.get_machine_id()
+                # Query strictly for this machine's profile document
+                doc = await self.db.user_profile.find_one({"machine_id": mid})
+                if doc:
+                    doc.pop("_id", None)
+                    doc.pop("machine_id", None)
+                    local_data = doc
+            except Exception as e:
+                logger.debug(f"Could not read profile from MongoDB: {e}")
+
+        if not local_data:
+            local_data = {}
+
+        # Align email and candidate name with active authenticated local Dice session
+        sess_email = self.get_active_session_email()
+        if sess_email:
+            if not local_data.get("email") or local_data.get("email") != sess_email:
+                local_data["email"] = sess_email
+                self.save_local_profile_data(local_data)
+
+        local_sess = self.get_local_session()
+        if local_sess.get("first_name") and not local_data.get("first_name"):
+            local_data["first_name"] = local_sess["first_name"]
+            self.save_local_profile_data(local_data)
+        if local_sess.get("last_name") and not local_data.get("last_name"):
+            local_data["last_name"] = local_sess["last_name"]
+            self.save_local_profile_data(local_data)
+
+        return UserProfileSchema(**local_data)
 
     async def update_profile(self, profile: UserProfileSchema) -> UserProfileSchema:
         data = profile.model_dump()
-        data["updated_at"] = datetime.now(timezone.utc)
-        await self.db.user_profile.update_one({}, {"$set": data}, upsert=True)
+        data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        # Save locally so each machine preserves its own candidate profile
+        self.save_local_profile_data(data)
+        if self.db is not None:
+            try:
+                mid = self.get_machine_id()
+                # Partition by machine_id in MongoDB
+                await self.db.user_profile.update_one(
+                    {"machine_id": mid},
+                    {"$set": {**data, "machine_id": mid}},
+                    upsert=True
+                )
+            except Exception as e:
+                logger.debug(f"Could not backup profile to MongoDB: {e}")
         return profile
 
     async def get_settings(self) -> AppSettingsSchema:
-        doc = await self.db.app_settings.find_one({})
-        if not doc:
-            return AppSettingsSchema()
+        doc = {}
+        if self.db is not None:
+            try:
+                doc = await self.db.app_settings.find_one({}) or {}
+            except Exception as e:
+                logger.debug(f"Could not load settings from MongoDB: {e}")
         doc.pop("_id", None)
         doc.pop("openai_api_key", None)
         doc.pop("openai_model", None)
+        doc.pop("saved_cookies", None)
+
+        # Attach host-local session status dynamically
+        local_sess = self.get_local_session()
+        doc["dice_session_connected"] = bool(local_sess.get("is_connected", False))
+        doc["dice_username"] = local_sess.get("username", "")
+        doc["dice_last_verified"] = local_sess.get("last_verified")
+
         return AppSettingsSchema(**doc)
 
     async def update_settings(self, app_settings: AppSettingsSchema) -> AppSettingsSchema:
         data = app_settings.model_dump()
         data.pop("openai_api_key", None)
         data.pop("openai_model", None)
+        # Never store cookies or host-specific session state in MongoDB
+        data.pop("saved_cookies", None)
+        data.pop("dice_session_connected", None)
+        data.pop("dice_username", None)
+        data.pop("dice_last_verified", None)
         data["updated_at"] = datetime.now(timezone.utc)
-        await self.db.app_settings.update_one(
-            {},
-            {
-                "$set": data,
-                "$unset": {"openai_api_key": "", "openai_model": ""}
-            },
-            upsert=True
-        )
+        if self.db is not None:
+            await self.db.app_settings.update_one(
+                {},
+                {
+                    "$set": data,
+                    "$unset": {
+                        "openai_api_key": "",
+                        "openai_model": "",
+                        "saved_cookies": "",
+                        "dice_session_connected": "",
+                        "dice_username": "",
+                        "dice_cookies_count": "",
+                        "dice_last_verified": ""
+                    }
+                },
+                upsert=True
+            )
         return app_settings
 
     def _is_hardcoded_name(self, name: Optional[str]) -> bool:
@@ -304,47 +456,49 @@ class SettingsService:
 
     async def get_dice_status(self, check_live: bool = False) -> Dict[str, Any]:
         """
-        Returns the current Dice account connection status.
-        Uses lightweight HTTP verification (production standard) when check_live is True,
-        completely avoiding the need to open a browser tab.
+        Returns the current Dice account connection status for THIS machine.
+        Uses host-local session storage (dice_session.json) and active Playwright context.
+        Never stores or reads cookies from MongoDB.
         """
-        doc = await self.db.app_settings.find_one({}) or {}
-        
+        local_session = self.get_local_session()
+
         # Fast path: Return cached status immediately when check_live is False
-        if not check_live and doc.get("dice_session_connected") is not None:
-            is_connected = bool(doc.get("dice_session_connected", False))
-            username = doc.get("dice_username", "")
-            if is_connected and self._is_hardcoded_name(username):
+        if not check_live and local_session.get("is_connected") is not None:
+            is_connected = bool(local_session.get("is_connected", False))
+            username = local_session.get("username", "")
+            email = local_session.get("email", "")
+            if is_connected and (not username or self._is_hardcoded_name(username)):
                 username = await self._resolve_generic_username()
             return {
                 "is_connected": is_connected,
                 "username": username if is_connected else "",
-                "cookies_count": doc.get("dice_cookies_count", 0),
-                "last_verified": doc.get("dice_last_verified") or datetime.now(timezone.utc).isoformat()
+                "email": email if is_connected else "",
+                "cookies_count": local_session.get("cookies_count", 0),
+                "last_verified": local_session.get("last_verified") or datetime.now(timezone.utc).isoformat()
             }
 
         # Rate-limit guard: if already verified live within the last 15 seconds, return cached status
         now_utc = datetime.now(timezone.utc)
-        last_verified_str = doc.get("dice_last_verified")
-        if doc.get("dice_session_connected") and last_verified_str:
+        last_verified_str = local_session.get("last_verified")
+        if local_session.get("is_connected") and last_verified_str:
             try:
                 last_dt = datetime.fromisoformat(last_verified_str)
                 if (now_utc - last_dt).total_seconds() < 15:
-                    username = doc.get("dice_username", "")
+                    username = local_session.get("username", "")
                     if self._is_hardcoded_name(username):
                         username = await self._resolve_generic_username()
                     return {
                         "is_connected": True,
                         "username": username,
-                        "cookies_count": doc.get("dice_cookies_count", 0),
+                        "email": local_session.get("email", ""),
+                        "cookies_count": local_session.get("cookies_count", 0),
                         "last_verified": last_verified_str
                     }
             except Exception:
                 pass
 
-        # 1. Collect cookies from MongoDB saved_cookies or active browser context
-        cookies = doc.get("saved_cookies", [])
-        
+        # 1. Collect cookies from active browser context or local session file
+        cookies = []
         from app.browser.playwright_manager import playwright_manager
         if playwright_manager.context:
             try:
@@ -354,23 +508,27 @@ class SettingsService:
             except Exception:
                 pass
 
+        if not cookies:
+            cookies = local_session.get("cookies", [])
+
         dice_cookies = [c for c in cookies if "dice.com" in c.get("domain", "")]
-        
+
         # 2. Verify session
         is_connected = False
         username = ""
-        
+
         if len(dice_cookies) >= 3:
             verify_result = await self._verify_cookies_via_http(dice_cookies)
             is_connected = verify_result.get("is_connected", False)
-            if is_connected and not doc.get("saved_cookies"):
-                # If cookies were extracted from browser context, persist to database
+            if is_connected and not local_session.get("cookies"):
+                # If cookies were extracted from browser context, persist to local session file
                 await self.import_dice_session(cookies=dice_cookies)
+                local_session = self.get_local_session()
         else:
             is_connected = False
 
         if is_connected:
-            stored_user = doc.get("dice_username", "")
+            stored_user = local_session.get("username", "")
             if stored_user and not self._is_hardcoded_name(stored_user):
                 username = stored_user
             else:
@@ -379,65 +537,83 @@ class SettingsService:
         now_iso = datetime.now(timezone.utc).isoformat()
         final_username = username if is_connected else ""
 
-        await self.db.app_settings.update_one(
-            {},
-            {"$set": {
-                "dice_session_connected": is_connected,
-                "dice_username": final_username,
-                "dice_cookies_count": len(dice_cookies),
-                "dice_last_verified": now_iso
-            }},
-            upsert=True
-        )
+        # Update local session file on disk (NEVER to MongoDB)
+        local_session["is_connected"] = is_connected
+        local_session["username"] = final_username
+        local_session["cookies_count"] = len(dice_cookies)
+        local_session["last_verified"] = now_iso
+        self.save_local_session(local_session)
 
         return {
             "is_connected": is_connected,
             "username": final_username,
+            "email": local_session.get("email", "") if is_connected else "",
             "cookies_count": len(dice_cookies),
             "last_verified": now_iso
         }
 
     async def verify_session_on_startup(self) -> Dict[str, Any]:
         """
-        Verify the Dice session when the application starts up,
-        log/display the current connection status, and store the result in MongoDB.
+        Verify the Dice session for THIS machine when the application starts up,
+        log/display the current connection status.
         """
         print("[Dice-Automation] ==================================================")
-        print("[Dice-Automation] Verifying Dice session on startup...")
+        print("[Dice-Automation] Verifying Dice session on startup (Host-Local Storage)...")
         try:
             status = await self.get_dice_status(check_live=True)
             is_connected = status.get("is_connected", False)
             username = status.get("username", "")
+            email = status.get("email", "")
             cookies_count = status.get("cookies_count", 0)
             last_verified = status.get("last_verified", "")
 
             if is_connected:
-                display_user = username or "Authenticated User"
+                display_user = username or email or "Authenticated User"
                 print(f"[Dice-Automation] Session Status : CONNECTED")
                 print(f"[Dice-Automation] Active User    : {display_user}")
+                if email:
+                    print(f"[Dice-Automation] Verified Email : {email}")
                 print(f"[Dice-Automation] Cookies Count  : {cookies_count}")
                 print(f"[Dice-Automation] Verified At    : {last_verified}")
             else:
-                print(f"[Dice-Automation] Session Status : NOT CONNECTED (Login required)")
+                print(f"[Dice-Automation] Session Status : NOT CONNECTED (Login required on this host)")
                 print(f"[Dice-Automation] Cookies Count  : {cookies_count}")
                 if cookies_count > 0:
-                    print(f"[Dice-Automation] Reason         : Cookies expired or invalid session")
+                    print(f"[Dice-Automation] Reason         : Local cookies expired or invalid session")
                 else:
-                    print(f"[Dice-Automation] Reason         : No Dice cookies found")
-                print(f"[Dice-Automation] Action         : Import session via UI or run 'python scripts/login_dice.py'")
+                    print(f"[Dice-Automation] Reason         : No local Dice session found on this machine")
             print("[Dice-Automation] ==================================================")
             return status
         except Exception as e:
-            logger.error(f"Error during startup Dice session verification: {e}")
-            print(f"[Dice-Automation] Session Status : VERIFICATION FAILED ({e})")
+            print(f"[Dice-Automation] Startup verification notice: {e}")
             print("[Dice-Automation] ==================================================")
-            return {
-                "is_connected": False,
-                "username": "",
-                "cookies_count": 0,
-                "last_verified": datetime.now(timezone.utc).isoformat(),
-                "error": str(e)
-            }
+            return {"is_connected": False, "username": "", "cookies_count": 0, "last_verified": ""}
+
+    async def disconnect_dice(self) -> Dict[str, Any]:
+        """Disconnects the local Dice session, removes local cookies, and resets state."""
+        self.clear_local_session()
+
+        from app.browser.playwright_manager import playwright_manager
+        if playwright_manager.context:
+            try:
+                await playwright_manager.context.clear_cookies()
+            except Exception:
+                pass
+
+        try:
+            from app.services.dice_session_manager import dice_session_manager
+            await dice_session_manager.broadcast("DICE_DISCONNECTED", {
+                "message": "Dice session disconnected on this machine.",
+                "is_connected": False
+            })
+        except Exception:
+            pass
+
+        return {
+            "status": "success",
+            "message": "Dice session disconnected successfully on this machine.",
+            "is_connected": False
+        }
 
     async def import_dice_session(
         self,
@@ -505,8 +681,13 @@ class SettingsService:
                 "is_connected": False
             }
 
-        # Dynamically extract candidate name and email from identity JWT cookie if present
+        # Dynamically extract candidate name, email, and ID from identity JWT cookie
         extracted_name = ""
+        extracted_email = ""
+        extracted_first = ""
+        extracted_last = ""
+        extracted_candidate_id = ""
+
         for c in sanitized_cookies:
             if c.get("name") == "identity":
                 try:
@@ -516,20 +697,51 @@ class SettingsService:
                     if len(parts) >= 2:
                         payload_b64 = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
                         payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-                        first = payload.get("name", "").strip()
-                        last = payload.get("family_name", "").strip()
+                        first = (payload.get("given_name") or payload.get("first_name") or payload.get("name") or "").strip()
+                        last = (payload.get("family_name") or payload.get("last_name") or "").strip()
                         full = f"{first} {last}".strip()
                         if full and not self._is_hardcoded_name(full):
                             extracted_name = full
-                        elif payload.get("email"):
-                            extracted_name = payload.get("email").strip()
+                            extracted_first = first
+                            extracted_last = last
+                        if payload.get("email"):
+                            extracted_email = payload.get("email").strip()
+                        if payload.get("candidate_id") or payload.get("sub"):
+                            extracted_candidate_id = str(payload.get("candidate_id") or payload.get("sub")).strip()
                 except Exception:
                     pass
+
+        # Also inspect local_storage if provided
+        if local_storage and isinstance(local_storage, dict):
+            for k, v in local_storage.items():
+                if "idtoken" in k.lower() and isinstance(v, str) and "." in v:
+                    try:
+                        parts = v.split(".")
+                        if len(parts) >= 2:
+                            payload_b64 = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                            cog_payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                            if not extracted_email and cog_payload.get("email"):
+                                extracted_email = cog_payload.get("email").strip()
+                            if not extracted_first and (cog_payload.get("given_name") or cog_payload.get("name")):
+                                extracted_first = (cog_payload.get("given_name") or cog_payload.get("name") or "").strip()
+                            if not extracted_last and cog_payload.get("family_name"):
+                                extracted_last = cog_payload.get("family_name", "").strip()
+                    except Exception:
+                        pass
+                if "userdata" in k.lower() and isinstance(v, str):
+                    try:
+                        ud = json.loads(v)
+                        attrs = ud.get("UserAttributes", [])
+                        for attr in attrs:
+                            if attr.get("Name") == "email" and not extracted_email:
+                                extracted_email = attr.get("Value", "").strip()
+                    except Exception:
+                        pass
 
         now_iso = datetime.now(timezone.utc).isoformat()
         resolved_username = username.strip() if (username and not self._is_hardcoded_name(username)) else ""
         if not resolved_username:
-            resolved_username = extracted_name or await self._resolve_generic_username()
+            resolved_username = extracted_name or extracted_email or await self._resolve_generic_username()
 
         # Perform live HTTP verification of the imported cookies
         is_connected = True
@@ -550,18 +762,47 @@ class SettingsService:
         except Exception as e:
             logger.debug(f"Could not inject cookies into active browser context: {e}")
 
-        # Save sanitized cookies and status to database
-        await self.db.app_settings.update_one(
-            {},
-            {"$set": {
-                "saved_cookies": sanitized_cookies,
-                "dice_session_connected": is_connected,
-                "dice_username": resolved_username if is_connected else "",
-                "dice_cookies_count": len(sanitized_cookies),
-                "dice_last_verified": now_iso
-            }},
-            upsert=True
-        )
+        # Persist session state LOCALLY to disk (NEVER to shared MongoDB!)
+        session_payload = {
+            "is_connected": is_connected,
+            "username": resolved_username if is_connected else "",
+            "email": extracted_email if is_connected else "",
+            "first_name": extracted_first if is_connected else "",
+            "last_name": extracted_last if is_connected else "",
+            "candidate_id": extracted_candidate_id,
+            "cookies_count": len(sanitized_cookies),
+            "last_verified": now_iso,
+            "cookies": sanitized_cookies,
+            "local_storage": local_storage or {},
+            "updated_at": now_iso
+        }
+        self.save_local_session(session_payload)
+
+        # Update local user profile email and name to match this authenticated candidate
+        if is_connected and extracted_email:
+            local_prof = self.get_local_profile_data() or {}
+            local_prof["email"] = extracted_email
+            if extracted_first and not local_prof.get("first_name"):
+                local_prof["first_name"] = extracted_first
+            if extracted_last and not local_prof.get("last_name"):
+                local_prof["last_name"] = extracted_last
+            self.save_local_profile_data(local_prof)
+
+        # Proactively purge any legacy cookies from shared MongoDB app_settings
+        if self.db is not None:
+            try:
+                await self.db.app_settings.update_one(
+                    {},
+                    {"$unset": {
+                        "saved_cookies": "",
+                        "dice_session_connected": "",
+                        "dice_username": "",
+                        "dice_cookies_count": "",
+                        "dice_last_verified": ""
+                    }}
+                )
+            except Exception:
+                pass
 
         if is_connected:
             # Broadcast connection success via SSE to all frontend subscribers
@@ -570,6 +811,7 @@ class SettingsService:
                 await dice_session_manager.broadcast("DICE_CONNECTED", {
                     "message": f"Dice session connected successfully! Account: {resolved_username}",
                     "username": resolved_username,
+                    "email": extracted_email,
                     "cookies_count": len(sanitized_cookies),
                     "is_connected": True
                 })
@@ -581,6 +823,7 @@ class SettingsService:
                 "message": f"Successfully connected {len(sanitized_cookies)} session cookies! Dice account: {resolved_username}.",
                 "is_connected": True,
                 "username": resolved_username,
+                "email": extracted_email,
                 "cookies_count": len(sanitized_cookies),
                 "last_verified": now_iso
             }
@@ -590,9 +833,11 @@ class SettingsService:
                 "message": f"Imported {len(sanitized_cookies)} cookies, but Dice verification noted: {verify_reason}. Please make sure you are signed in on Dice.",
                 "is_connected": False,
                 "username": resolved_username,
+                "email": extracted_email,
                 "cookies_count": len(sanitized_cookies),
                 "last_verified": now_iso
             }
 
 settings_service = SettingsService()
+
 

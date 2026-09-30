@@ -6,7 +6,7 @@ __pycache__
 .git
 .gitignore
 .env
-data/browser_profile
+data/
 *.log
 .DS_Store
 Thumbs.db

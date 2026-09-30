@@ -85,23 +85,22 @@ async def main():
         print("Saving session cookies to profile directory...")
         await context.close()
 
-        # Sync cookies to MongoDB app_settings for instant backend verification
+        # Save cookies locally and verify session
         try:
-            from app.database import connect_db, close_db
             from app.services.settings_service import settings_service
-            await connect_db()
             import_res = await settings_service.import_dice_session(cookies=dice_cookies)
             if import_res.get("is_connected"):
-                print(f"[SUCCESS] {import_res.get('message', 'Session synced to MongoDB!')}")
+                print(f"[SUCCESS] {import_res.get('message', 'Session saved locally!')}")
                 print(f"[ACCOUNT] Connected candidate: {import_res.get('username')}")
-                print("[SUCCESS] Session saved! Your Dice account is now actively connected.")
+                if import_res.get("email"):
+                    print(f"[EMAIL] Verified account email: {import_res.get('email')}")
+                print("[SUCCESS] Session saved locally! Your Dice account is now actively connected on this machine.")
                 print("The backend automation will now run with your authenticated Dice session.")
             else:
                 print(f"[WARNING] {import_res.get('message', 'Cookies saved, but session verification did not succeed.')}")
                 print("Please verify your Dice login credentials and rerun if needed.")
-            await close_db()
         except Exception as e:
-            print(f"[NOTICE] Could not sync cookies to database: {e}")
+            print(f"[NOTICE] Could not save local session: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())

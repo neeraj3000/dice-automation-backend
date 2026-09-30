@@ -311,10 +311,20 @@ class ApplicationBrowser:
 
     async def _fill_personal_info(self, page, user_profile: UserProfileSchema) -> List[str]:
         filled = []
+        # Resolve active session email to prevent cross-account mismatch
+        active_email = user_profile.email
+        try:
+            from app.services.settings_service import settings_service
+            sess_email = settings_service.get_active_session_email()
+            if sess_email:
+                active_email = sess_email
+        except Exception:
+            pass
+
         field_mappings = [
             ("First Name", user_profile.first_name, ["first_name", "firstname", "first name", "given-name", "fname"]),
             ("Last Name", user_profile.last_name, ["last_name", "lastname", "last name", "family-name", "lname"]),
-            ("Email", user_profile.email, ["email", "e-mail", "email address", "emailaddress"]),
+            ("Email", active_email, ["email", "e-mail", "email address", "emailaddress"]),
             ("Phone", user_profile.phone, ["phone", "telephone", "mobile", "cell", "phonenumber"]),
             ("City", user_profile.city, ["city", "town"]),
             ("State", user_profile.state, ["state", "province", "region"]),
@@ -332,8 +342,15 @@ class ApplicationBrowser:
                 elem = page.locator(selector).first
                 try:
                     if await elem.count() and await elem.is_visible():
-                        curr = await elem.input_value()
-                        if not curr.strip():
+                        curr = (await elem.input_value() or "").strip()
+                        # If field already has an email prefilled by Dice for this account, do not overwrite it
+                        if curr:
+                            if "@" in curr and label == "Email":
+                                logger.info(f"Dice application form already prefilled with candidate email: {curr}")
+                                filled.append(label)
+                                break
+                            break
+                        if not curr and val:
                             await elem.fill(val)
                             filled.append(label)
                             break

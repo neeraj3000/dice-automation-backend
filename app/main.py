@@ -21,7 +21,7 @@ if sys.platform == "win32":
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import connect_db, close_db, get_database
-from app.api import resumes, search, jobs, applications, review, settings as settings_api
+from app.api import resumes, search, jobs, applications, review, settings as settings_api, extension
 
 
 @asynccontextmanager
@@ -30,6 +30,20 @@ async def lifespan(app: FastAPI):
     try:
         await connect_db()
         print("[Dice-Automation] Connected to MongoDB.")
+        # One-time migration: Purge legacy shared session cookies from MongoDB
+        db = get_database()
+        if db is not None:
+            await db.app_settings.update_many(
+                {},
+                {"$unset": {
+                    "saved_cookies": "",
+                    "dice_session_connected": "",
+                    "dice_username": "",
+                    "dice_cookies_count": "",
+                    "dice_last_verified": ""
+                }}
+            )
+            print("[Dice-Automation] Purged legacy shared session cookies from MongoDB.")
     except Exception as e:
         print(f"[Dice-Automation] Error connecting to MongoDB: {e}")
 
@@ -98,11 +112,11 @@ cors_kwargs = {
     "allow_credentials": True,
 }
 if cors_origins_env == "*" or not cors_origins_env:
-    # Allow all HTTP/HTTPS origins safely with regex while preserving credentials
-    cors_kwargs["allow_origin_regex"] = r"^https?://.*"
+    # Allow all HTTP/HTTPS and Chrome extension origins safely with regex
+    cors_kwargs["allow_origin_regex"] = r"^(https?://.*|chrome-extension://.*)"
 else:
     cors_kwargs["allow_origins"] = allowed_origins
-    cors_kwargs["allow_origin_regex"] = r"^https?://([a-zA-Z0-9-]+\.)*dice\.com(:[0-9]+)?$"
+    cors_kwargs["allow_origin_regex"] = r"^(https?://([a-zA-Z0-9-]+\.)*dice\.com(:[0-9]+)?|chrome-extension://.*)"
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
 
@@ -113,6 +127,7 @@ app.include_router(jobs.router)
 app.include_router(applications.router)
 app.include_router(review.router)
 app.include_router(settings_api.router)
+app.include_router(extension.router)
 
 # Also support /api prefix for backwards compatibility
 app.include_router(resumes.router, prefix="/api", include_in_schema=False)
@@ -121,6 +136,7 @@ app.include_router(jobs.router, prefix="/api", include_in_schema=False)
 app.include_router(applications.router, prefix="/api", include_in_schema=False)
 app.include_router(review.router, prefix="/api", include_in_schema=False)
 app.include_router(settings_api.router, prefix="/api", include_in_schema=False)
+app.include_router(extension.router, prefix="/api", include_in_schema=False)
 
 @app.get("/")
 async def root():
