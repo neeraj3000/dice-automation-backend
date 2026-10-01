@@ -21,7 +21,7 @@ if sys.platform == "win32":
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import connect_db, close_db, get_database
-from app.api import resumes, search, jobs, applications, review, settings as settings_api, extension
+from app.api import resumes, search, jobs, applications, review, settings as settings_api
 
 
 @asynccontextmanager
@@ -112,11 +112,11 @@ cors_kwargs = {
     "allow_credentials": True,
 }
 if cors_origins_env == "*" or not cors_origins_env:
-    # Allow all HTTP/HTTPS and Chrome extension origins safely with regex
-    cors_kwargs["allow_origin_regex"] = r"^(https?://.*|chrome-extension://.*)"
+    # Allow all HTTP/HTTPS origins safely with regex while preserving credentials
+    cors_kwargs["allow_origin_regex"] = r"^https?://.*"
 else:
     cors_kwargs["allow_origins"] = allowed_origins
-    cors_kwargs["allow_origin_regex"] = r"^(https?://([a-zA-Z0-9-]+\.)*dice\.com(:[0-9]+)?|chrome-extension://.*)"
+    cors_kwargs["allow_origin_regex"] = r"^https?://([a-zA-Z0-9-]+\.)*dice\.com(:[0-9]+)?$"
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
 
@@ -127,7 +127,6 @@ app.include_router(jobs.router)
 app.include_router(applications.router)
 app.include_router(review.router)
 app.include_router(settings_api.router)
-app.include_router(extension.router)
 
 # Also support /api prefix for backwards compatibility
 app.include_router(resumes.router, prefix="/api", include_in_schema=False)
@@ -136,7 +135,6 @@ app.include_router(jobs.router, prefix="/api", include_in_schema=False)
 app.include_router(applications.router, prefix="/api", include_in_schema=False)
 app.include_router(review.router, prefix="/api", include_in_schema=False)
 app.include_router(settings_api.router, prefix="/api", include_in_schema=False)
-app.include_router(extension.router, prefix="/api", include_in_schema=False)
 
 @app.get("/")
 async def root():
