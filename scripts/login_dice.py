@@ -77,10 +77,17 @@ async def main():
         except EOFError:
             await asyncio.sleep(10)
 
-        print("\nExtracting authenticated session cookies...")
+        print("\nExtracting authenticated session cookies and localStorage...")
         cookies = await context.cookies()
         dice_cookies = [c for c in cookies if "dice.com" in c.get("domain", "")]
         print(f"Found {len(dice_cookies)} Dice cookies.")
+
+        local_storage = {}
+        try:
+            local_storage = await page.evaluate("() => Object.assign({}, window.localStorage)")
+            print(f"Extracted {len(local_storage)} localStorage items.")
+        except Exception as e:
+            print(f"Could not extract localStorage: {e}")
 
         print("Saving session cookies to profile directory...")
         await context.close()
@@ -88,7 +95,10 @@ async def main():
         # Save cookies locally and verify session
         try:
             from app.services.settings_service import settings_service
-            import_res = await settings_service.import_dice_session(cookies=dice_cookies)
+            import_res = await settings_service.import_dice_session(
+                cookies=dice_cookies,
+                local_storage=local_storage
+            )
             if import_res.get("is_connected"):
                 print(f"[SUCCESS] {import_res.get('message', 'Session saved locally!')}")
                 print(f"[ACCOUNT] Connected candidate: {import_res.get('username')}")

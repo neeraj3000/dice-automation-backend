@@ -11,6 +11,59 @@ from app.schemas.user_profile import UserProfileSchema
 logger = logging.getLogger(__name__)
 
 class ApplicationBrowser:
+    async def _detect_login_wall(self, page) -> bool:
+        """
+        Detects if the page has hit Dice's login wall (redirect to /dashboard/login,
+        login.dice.com, 2-step email/password prompts, etc.).
+        """
+        try:
+            curr_url = page.url.lower()
+            if "/dashboard/login" in curr_url or "login.dice.com" in curr_url or "redirecturl=" in curr_url:
+                return True
+
+            content = (await page.content()).lower()
+            login_phrases = (
+                "create an account or sign in",
+                "continue with email",
+                "sign in to continue",
+                "sign in to apply",
+                "sign in to dice",
+            )
+            if any(phrase in content for phrase in login_phrases):
+                indicators = page.locator(
+                    'input[type="email"], input[name="email"], input[type="password"], '
+                    'button:has-text("Continue with email"), button:has-text("Sign In")'
+                ).first
+                if await indicators.count() > 0 and await indicators.is_visible():
+                    return True
+        except Exception as e:
+            logger.debug(f"Error checking login wall: {e}")
+        return False
+
+    async def _handle_login_required(self, progress_steps: List[str]) -> Dict[str, Any]:
+        """Soft-invalidates the session and returns a prompt requesting user sign in."""
+        progress_steps.append("Dice sign-in required. Marking session disconnected.")
+        try:
+            from app.services.settings_service import settings_service
+            await settings_service.mark_session_disconnected(
+                "Dice sign-in required. Login prompt detected during job application."
+            )
+        except Exception as se:
+            logger.debug(f"Could not mark session disconnected: {se}")
+
+        return {
+            "success": False,
+            "status": "REVIEW",
+            "progress_steps": progress_steps,
+            "failure_reason": "Dice login required. Please sign into your Dice account in the opened browser window.",
+            "unanswered_questions": [{
+                "question_text": "Please sign in to Dice in the opened browser window to continue your application.",
+                "field_name": "login_required",
+                "options": ["Done, Continue"],
+                "is_login_prompt": True
+            }]
+        }
+
     async def prepare_application(
         self,
         application_url: str,
@@ -51,24 +104,9 @@ class ApplicationBrowser:
                 logger.error(f"Failed to load URL {target_url}: {e}")
                 raise e
 
-            # Check for Dice login prompt first
-            content = await page.content()
-            if "sign in" in content.lower() and ("password" in content.lower() or "login" in content.lower()):
-                login_btn = page.locator('button:has-text("Sign In"), input[type="password"]').first
-                if await login_btn.count() and await login_btn.is_visible():
-                    progress_steps.append("Dice login required")
-                    return {
-                        "success": False,
-                        "status": "REVIEW",
-                        "progress_steps": progress_steps,
-                        "failure_reason": "Dice login required. Please log into your Dice account in the browser.",
-                        "unanswered_questions": [{
-                            "question_text": "Please sign in to Dice in the opened browser window to continue your application.",
-                            "field_name": "login_required",
-                            "options": ["Done, Continue"],
-                            "is_login_prompt": True
-                        }]
-                    }
+            # Check for Dice login prompt immediately upon loading target URL
+            if await self._detect_login_wall(page):
+                return await self._handle_login_required(progress_steps)
 
             # Check if we landed on a job detail page vs already on the wizard
             is_wizard = "/wizard" in page.url.lower()
@@ -126,6 +164,10 @@ class ApplicationBrowser:
                 # Track active page if popup opened
                 if len(page.context.pages) > 1:
                     page = page.context.pages[-1]
+
+                # Check if clicking Apply redirected to Dice login
+                if await self._detect_login_wall(page):
+                    return await self._handle_login_required(progress_steps)
 
                 # Check if application redirects to external company website
                 curr_url = page.url.lower()

@@ -314,8 +314,35 @@ class PlaywrightManager:
                     added = await self.add_cookies_safely(local_sess["cookies"])
                     if added > 0:
                         logger.info(f"Restored {added} saved Dice cookies from local session file into browser context.")
+
+                # Restore saved localStorage tokens (AWS Cognito idToken, refreshToken) into context
+                saved_ls = (local_sess or {}).get("local_storage", {})
+                if saved_ls and isinstance(saved_ls, dict):
+                    import json
+                    auth_ls = {
+                        k: v for k, v in saved_ls.items()
+                        if isinstance(v, str) and any(t in k.lower() for t in ("token", "auth", "cognito", "user"))
+                    }
+                    if auth_ls:
+                        escaped_json = json.dumps(auth_ls)
+                        script = f"""
+                        (() => {{
+                            try {{
+                                if (window.location.hostname.includes("dice.com")) {{
+                                    const items = {escaped_json};
+                                    for (const [k, v] of Object.entries(items)) {{
+                                        if (!window.localStorage.getItem(k)) {{
+                                            window.localStorage.setItem(k, v);
+                                        }}
+                                    }}
+                                }}
+                            }} catch (e) {{}}
+                        }})();
+                        """
+                        await self.context.add_init_script(script)
+                        logger.info(f"Registered init_script to restore {len(auth_ls)} localStorage auth tokens on dice.com")
             except Exception as e:
-                logger.debug(f"Could not restore local session cookies: {e}")
+                logger.debug(f"Could not restore local session cookies/storage: {e}")
 
             return self.context
 

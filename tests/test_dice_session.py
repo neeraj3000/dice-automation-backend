@@ -150,3 +150,44 @@ async def test_browser_status_and_verification():
         assert "executable_path" in data
         assert "headless" in data
         assert "is_cloud_mode" in data
+
+@pytest.mark.anyio
+async def test_marketing_cookies_rejected_as_unauthenticated():
+    """Verify that marketing/tracking cookies alone are never treated as an active session."""
+    marketing_cookies = [
+        {"name": "_ga", "value": "GA1.1.123456", "domain": ".dice.com", "path": "/"},
+        {"name": "_uetsid", "value": "abc123456", "domain": ".dice.com", "path": "/"},
+        {"name": "_mkto_trk", "value": "id:123&token:456", "domain": ".dice.com", "path": "/"},
+        {"name": "_gcl_au", "value": "1.1.987654", "domain": ".dice.com", "path": "/"},
+    ]
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post("/settings/import-dice-session", json={"cookies": marketing_cookies})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["is_connected"] is False
+        assert "No candidate authentication tokens found" in data["message"]
+
+        # Ensure dice-status also reflects not connected
+        status_res = await client.get("/settings/dice-status")
+        assert status_res.status_code == 200
+        status_data = status_res.json()
+        assert status_data["is_connected"] is False
+
+@pytest.mark.anyio
+async def test_mark_session_disconnected():
+    """Verify soft-disconnection updates local session without deleting cookies."""
+    # First save a valid dummy session
+    cookies = [{"name": "test_auth_token", "value": "xyz123", "domain": ".dice.com", "path": "/"}]
+    await settings_service.import_dice_session(cookies=cookies, username="Test Candidate")
+    assert settings_service.get_local_session().get("is_connected") is True
+
+    # Mark disconnected
+    res = await settings_service.mark_session_disconnected("Login wall encountered")
+    assert res["is_connected"] is False
+    sess = settings_service.get_local_session()
+    assert sess.get("is_connected") is False
+    assert sess.get("disconnect_reason") == "Login wall encountered"
+    # Cookies are preserved for re-authentication rather than abruptly wiped
+    assert len(sess.get("cookies", [])) > 0
+

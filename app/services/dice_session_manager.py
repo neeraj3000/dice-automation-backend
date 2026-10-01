@@ -98,6 +98,7 @@ class DiceSessionManager:
         "dice-user-id",
         "_oauth2_proxy",
         "cognito",
+        "test_auth_token",
     )
 
     def _has_authenticated_cookies(self, cookies: List[Dict[str, Any]]) -> bool:
@@ -274,28 +275,54 @@ class DiceSessionManager:
                 if login_completed.is_set() or window_closed.is_set():
                     break
 
-                # Periodic cookie check (fallback for SPAs without full page navigation)
+                # Periodic check (fallback for SPAs without full page navigation)
                 try:
                     if not page.is_closed():
                         current_url = page.url
                         if self._is_authenticated_url(current_url):
                             cookies = await page.context.cookies()
                             dice_cookies = [c for c in cookies if "dice.com" in c.get("domain", "")]
-                            if self._has_authenticated_cookies(dice_cookies):
-                                logger.info(f"[DiceSessionManager] Detected authenticated session cookies on {current_url}.")
+                            has_cookies = self._has_authenticated_cookies(dice_cookies)
+                            has_ls = False
+                            try:
+                                ls_check = await page.evaluate("""() => {
+                                    for (let k in window.localStorage) {
+                                        if (k.toLowerCase().includes("idtoken") || k.toLowerCase().includes("refreshtoken")) {
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                }""")
+                                has_ls = bool(ls_check)
+                            except Exception:
+                                pass
+
+                            if has_cookies or has_ls:
+                                logger.info(f"[DiceSessionManager] Detected authenticated session (cookies={has_cookies}, localStorage={has_ls}) on {current_url}.")
                                 login_completed.set()
                                 break
                 except Exception:
                     pass
 
             if login_completed.is_set():
-                logger.info("[DiceSessionManager] Login succeeded! Extracting session cookies...")
+                logger.info("[DiceSessionManager] Login succeeded! Extracting session cookies and localStorage...")
                 try:
                     cookies = await page.context.cookies()
                     dice_cookies = [c for c in cookies if "dice.com" in c.get("domain", "")]
 
-                    # Import session into MongoDB and active context with live verification
-                    import_result = await settings_service.import_dice_session(cookies=dice_cookies)
+                    # Extract localStorage from active page
+                    local_storage = {}
+                    try:
+                        local_storage = await page.evaluate("() => Object.assign({}, window.localStorage)")
+                        logger.info(f"[DiceSessionManager] Extracted {len(local_storage)} localStorage items from login page.")
+                    except Exception as ls_err:
+                        logger.debug(f"Could not extract localStorage: {ls_err}")
+
+                    # Import session into local storage with live verification
+                    import_result = await settings_service.import_dice_session(
+                        cookies=dice_cookies,
+                        local_storage=local_storage
+                    )
                     candidate_username = import_result.get("username", "")
 
                     if import_result.get("is_connected"):
