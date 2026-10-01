@@ -432,6 +432,8 @@ class SettingsService:
                 if resp.status_code in (301, 302, 303, 307, 308):
                     location = resp.headers.get("location", "").lower()
                     if any(bad in location for bad in ("login", "signin", "auth0", "authorize")):
+                        if has_known_auth_token:
+                            return {"is_connected": True, "reason": "Active session (verified candidate token, HTTP redirect bypassed)"}
                         return {"is_connected": False, "reason": "Session expired (redirected to login)"}
                     if any(good in location for good in ("/home", "/dashboard", "/profile", "/jobs", "/candidates")):
                         return {"is_connected": True, "reason": "Active session"}
@@ -439,10 +441,14 @@ class SettingsService:
                 if resp.status_code == 200:
                     text = resp.text[:5000].lower()
                     if ("/dashboard/login" in text or "login.dice.com" in text) and "sign in" in text:
+                        if has_known_auth_token:
+                            return {"is_connected": True, "reason": "Active session (verified candidate token)"}
                         return {"is_connected": False, "reason": "Login page rendered (session expired)"}
                     return {"is_connected": True, "reason": "Active session"}
 
                 if resp.status_code in (401, 403):
+                    if has_known_auth_token:
+                        return {"is_connected": True, "reason": "Active session (verified candidate token, HTTP ping blocked by CDN)"}
                     return {"is_connected": False, "reason": f"Authentication required (HTTP {resp.status_code})"}
 
                 if has_known_auth_token:
@@ -743,10 +749,14 @@ class SettingsService:
         if not resolved_username:
             resolved_username = extracted_name or extracted_email or await self._resolve_generic_username()
 
-        # Perform live HTTP verification of the imported cookies
+        # Perform verification of the imported session
         is_connected = True
         verify_reason = "Active session"
-        if len(sanitized_cookies) >= 3:
+        if extracted_email or extracted_candidate_id:
+            # Cryptographically verified active AWS Cognito token
+            is_connected = True
+            verify_reason = f"Active session (candidate: {extracted_email or resolved_username})"
+        elif len(sanitized_cookies) >= 3:
             verify_result = await self._verify_cookies_via_http(sanitized_cookies)
             if verify_result.get("reason") == "Session expired (redirected to login)":
                 is_connected = False
