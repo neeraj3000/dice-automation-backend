@@ -54,12 +54,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Dice-Automation] Notice: Could not verify Dice session on startup: {e}")
 
-    # Startup: Ensure Playwright browser binary is available (self-healing for Render and cloud deploys)
+    # Startup: Verify Playwright browser availability without downloading at runtime
     try:
         from app.browser.playwright_manager import playwright_manager
-        asyncio.create_task(playwright_manager.ensure_browser_installed())
+        is_ready = await playwright_manager.ensure_browser_installed()
+        if is_ready:
+            print("[Dice-Automation] Playwright Chromium binary verified (installed during build phase).")
+        else:
+            print("[Dice-Automation] Warning: Playwright Chromium binary not found. Ensure build step ran 'python -m playwright install --with-deps chromium'.")
     except Exception as e:
-        print(f"[Dice-Automation] Notice: Could not schedule browser verification on startup: {e}")
+        print(f"[Dice-Automation] Notice during startup browser verification: {e}")
 
     yield
 

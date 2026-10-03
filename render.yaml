@@ -2,6 +2,7 @@ services:
   - type: web
     name: dice-automation-backend
     runtime: docker
+    dockerfilePath: ./Dockerfile
     plan: free
     region: oregon
     healthCheckPath: /health

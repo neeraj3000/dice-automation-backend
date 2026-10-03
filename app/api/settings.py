@@ -85,13 +85,13 @@ async def get_browser_status():
 
 @router.post("/settings/install-browser")
 async def install_browser():
-    """Triggers download and installation of Playwright Chromium browser binary."""
+    """Verifies presence of Playwright Chromium browser binary."""
     from app.browser.playwright_manager import playwright_manager
     installed = await playwright_manager.ensure_browser_installed()
     status = await playwright_manager.get_browser_status()
     return {
         "success": installed,
-        "message": "Playwright Chromium browser installed and verified." if installed else "Failed to install Playwright browser.",
+        "message": "Playwright Chromium browser binary verified." if installed else "Playwright Chromium browser binary not found. Ensure it was installed during build phase via 'python -m playwright install --with-deps chromium'.",
         **status
     }
 

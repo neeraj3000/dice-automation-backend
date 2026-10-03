@@ -191,3 +191,16 @@ async def test_mark_session_disconnected():
     # Cookies are preserved for re-authentication rather than abruptly wiped
     assert len(sess.get("cookies", [])) > 0
 
+@pytest.mark.anyio
+async def test_headless_chromium_launch():
+    """Verify that Playwright can launch and close headless Chromium without downloading at runtime."""
+    from app.browser.playwright_manager import playwright_manager
+    page = await playwright_manager.get_new_page(headless=True)
+    assert page is not None
+    await page.goto("about:blank")
+    content = await page.content()
+    assert "<html" in content.lower()
+    await page.close()
+    await playwright_manager.close()
+
+

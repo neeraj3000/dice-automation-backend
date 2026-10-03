@@ -23,7 +23,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright browser binary and OS shared libraries
-RUN playwright install --with-deps chromium
+RUN python -m playwright install --with-deps chromium
 
 # Copy application source code
 COPY . .

@@ -24,11 +24,15 @@ class PlaywrightManager:
     @property
     def has_display(self) -> bool:
         """Determines if the current system environment has a graphical display capable of rendering windows."""
+        if os.environ.get("RENDER"):
+            return False
         return sys.platform == "win32" or bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
     @property
     def headless(self) -> bool:
         """Determines whether browser instances should be launched in headless mode."""
+        if os.environ.get("RENDER"):
+            return True
         headless_env = os.environ.get("HEADLESS_BROWSER")
         if headless_env is not None:
             return headless_env.lower() in ("true", "1", "yes")
@@ -43,13 +47,14 @@ class PlaywrightManager:
     @property
     def is_cloud_mode(self) -> bool:
         """Returns True if the backend is running in a headless / cloud environment without a direct user desktop."""
+        if os.environ.get("RENDER"):
+            return True
         return not self.has_display or os.environ.get("HEADLESS_BROWSER", "").lower() in ("true", "1", "yes")
 
     async def ensure_browser_installed(self) -> bool:
         """
-        Ensures that the required Playwright browser binary (Chromium) is installed.
-        If missing (e.g. in cloud environments like Render native Python where
-        'playwright install' wasn't run during build), downloads it automatically.
+        Verifies that the required Playwright browser binary (Chromium) is installed.
+        Does NOT download or install at runtime; browsers must be installed during the build phase.
         """
         async with self._install_lock:
             if not self.playwright:
@@ -64,27 +69,15 @@ class PlaywrightManager:
                 if exec_path and Path(exec_path).exists():
                     logger.info(f"Playwright Chromium binary verified at: {exec_path}")
                     return True
-            except Exception as e:
-                logger.debug(f"Could not verify Chromium executable_path: {e}")
-
-            logger.warning(
-                "Playwright Chromium binary not found. Auto-installing Chromium now (running: python -m playwright install chromium)..."
-            )
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    sys.executable, "-m", "playwright", "install", "chromium",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                logger.error(
+                    f"Playwright Chromium binary not found at '{exec_path}'. "
+                    "Chromium must be installed during the build phase using 'python -m playwright install --with-deps chromium'."
                 )
-                stdout, stderr = await proc.communicate()
-                if proc.returncode == 0:
-                    logger.info("Successfully installed Playwright Chromium binary.")
-                    return True
-                else:
-                    err_msg = stderr.decode().strip() or stdout.decode().strip()
-                    logger.error(f"Failed to auto-install Playwright Chromium (code {proc.returncode}): {err_msg}")
-            except Exception as install_err:
-                logger.error(f"Exception during Playwright auto-install: {install_err}")
+            except Exception as e:
+                logger.error(
+                    f"Could not verify Chromium executable_path ({e}). "
+                    "Ensure Chromium was installed during the build phase."
+                )
 
             return False
 
@@ -200,14 +193,6 @@ class PlaywrightManager:
             if any(p.exists() for p in google_chrome_paths):
                 channel = "chrome"
 
-            # If no system Chrome, proactively ensure bundled Playwright Chromium binary is installed
-            if not channel:
-                try:
-                    exec_path = self.playwright.chromium.executable_path
-                    if not exec_path or not Path(exec_path).exists():
-                        await self.ensure_browser_installed()
-                except Exception:
-                    pass
 
             args = [
                 "--disable-blink-features=AutomationControlled",
@@ -278,32 +263,23 @@ class PlaywrightManager:
             except Exception as e:
                 err_str = str(e)
                 if "Executable doesn't exist" in err_str or "playwright install" in err_str:
-                    logger.warning("Chromium executable missing during launch. Running auto-install...")
-                    installed = await self.ensure_browser_installed()
-                    if installed:
-                        _clean_stale_locks()
-                        self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
-                    else:
-                        raise
-                else:
-                    logger.warning(f"Initial browser launch failed ({e}). Retrying with default Chromium...")
+                    logger.error(
+                        f"Chromium executable missing during launch: {e}. "
+                        "Chromium must be installed during the build phase using 'python -m playwright install --with-deps chromium'."
+                    )
+                    raise
+                if channel:
+                    logger.warning(f"Browser launch with channel '{channel}' failed ({e}). Retrying with default Chromium...")
                     _clean_orphaned_chrome()
                     _clean_stale_locks()
                     try:
                         self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
                     except Exception as retry_err:
-                        retry_str = str(retry_err)
-                        if "Executable doesn't exist" in retry_str or "playwright install" in retry_str:
-                            logger.warning("Chromium executable missing on retry. Attempting auto-install...")
-                            installed = await self.ensure_browser_installed()
-                            if installed:
-                                _clean_stale_locks()
-                                self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
-                            else:
-                                raise
-                        else:
-                            logger.error(f"Fallback Chromium launch failed: {retry_err}")
-                            raise
+                        logger.error(f"Fallback Chromium launch failed: {retry_err}")
+                        raise
+                else:
+                    logger.error(f"Browser launch failed: {e}")
+                    raise
 
             self._current_headless = target_headless
 
