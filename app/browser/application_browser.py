@@ -10,7 +10,97 @@ from app.schemas.user_profile import UserProfileSchema
 
 logger = logging.getLogger(__name__)
 
+EXTERNAL_PORTAL_DOMAINS = (
+    "myworkdayjobs.com",
+    "workday.com",
+    "greenhouse.io",
+    "lever.co",
+    "taleo.net",
+    "icims.com",
+    "smartrecruiters.com",
+    "jobvite.com",
+    "successfactors.com",
+    "brassring.com",
+    "adp.com",
+    "bamboohr.com",
+    "ashbyhq.com",
+    "applytojob.com",
+)
+
+
+async def _notify_status(callback: Optional[Any], state: str):
+    if callback:
+        try:
+            res = callback(state)
+            if asyncio.iscoroutine(res):
+                await res
+        except Exception as e:
+            logger.debug(f"Status notification callback error: {e}")
+
+
 class ApplicationBrowser:
+    def _is_external_portal(self, url: str) -> bool:
+        """
+        Detects if the URL points to an external ATS or non-Dice domain.
+        """
+        if not url:
+            return False
+        u = url.lower().strip()
+        if not u.startswith("http"):
+            return False
+        if "dice.com" not in u:
+            return True
+        if any(dom in u for dom in EXTERNAL_PORTAL_DOMAINS):
+            return True
+        return False
+
+    async def _detect_captcha(self, page) -> bool:
+        """
+        Detects if the page has hit a CAPTCHA or bot-detection challenge
+        (Cloudflare Turnstile, Arkose Labs, Google reCAPTCHA, hCaptcha, etc.).
+        """
+        try:
+            curr_url = page.url.lower()
+            if "challenge" in curr_url or "captcha" in curr_url:
+                return True
+
+            captcha_selectors = (
+                'iframe[src*="recaptcha"]',
+                'iframe[src*="hcaptcha"]',
+                'iframe[src*="challenges.cloudflare"]',
+                'div#challenge-stage',
+                'div#challenge-running',
+                'div.cf-turnstile',
+                'div.g-recaptcha',
+                'div.h-captcha',
+                'div[data-sitekey]',
+                'iframe[src*="arkose"]',
+                '#arkose'
+            )
+            for sel in captcha_selectors:
+                el = page.locator(sel).first
+                if await el.count() > 0 and await el.is_visible():
+                    return True
+
+            title = (await page.title()).lower()
+            if any(t in title for t in ["just a moment...", "attention required! | cloudflare", "security check", "human verification"]):
+                return True
+
+            content = (await page.content()).lower()
+            captcha_phrases = (
+                "verify you are human",
+                "please verify you are a human",
+                "press and hold",
+                "security check to access dice.com",
+                "verifying you are human",
+                "checking if the site connection is secure",
+            )
+            if any(phrase in content for phrase in captcha_phrases):
+                return True
+        except Exception as e:
+            logger.debug(f"Error checking CAPTCHA: {e}")
+        return False
+
     async def _detect_login_wall(self, page) -> bool:
         """
         Detects if the page has hit Dice's login wall (redirect to /dashboard/login,
@@ -41,7 +131,7 @@ class ApplicationBrowser:
         return False
 
     async def _handle_login_required(self, progress_steps: List[str]) -> Dict[str, Any]:
-        """Soft-invalidates the session and returns a prompt requesting user sign in."""
+        """Soft-invalidates the session and returns LOGIN_REQUIRED status."""
         progress_steps.append("Dice sign-in required. Marking session disconnected.")
         try:
             from app.services.settings_service import settings_service
@@ -53,9 +143,9 @@ class ApplicationBrowser:
 
         return {
             "success": False,
-            "status": "REVIEW",
+            "status": "LOGIN_REQUIRED",
             "progress_steps": progress_steps,
-            "failure_reason": "Dice login required. Please sign into your Dice account in the opened browser window.",
+            "failure_reason": "Dice login required. Please sign into your Dice account or sync your session.",
             "unanswered_questions": [{
                 "question_text": "Please sign in to Dice in the opened browser window to continue your application.",
                 "field_name": "login_required",
@@ -69,26 +159,35 @@ class ApplicationBrowser:
         application_url: str,
         resume_file_path: str,
         user_profile: UserProfileSchema,
-        mode: str = "PREPARE"
+        mode: str = "PREPARE",
+        page: Optional[Any] = None,
+        profile_id: str = "default",
+        status_callback: Optional[Any] = None,
+        should_close_page: Optional[bool] = None
     ) -> Dict[str, Any]:
         """
         Automates navigating to the Dice job application, filling personal info,
         selecting or uploading the target resume, answering standard screener questions,
         and either pausing at the final review step (PREPARE) or submitting (APPLY).
         """
-        page = None
+        own_page = False
         progress_steps = ["Job application initialized"]
         unanswered_questions: List[Dict[str, Any]] = []
 
         try:
-            page = await playwright_manager.get_new_page()
+            if page is None:
+                own_page = True
+                page = await playwright_manager.get_new_page(profile_id=profile_id)
+            elif should_close_page is True:
+                own_page = True
+
             target_url = (application_url or "").strip()
             if not target_url or not target_url.startswith("http"):
                 logger.info(f"No valid HTTP URL provided: '{target_url}'. Skipping browser navigation.")
                 progress_steps.append("No external job URL provided (direct matched JD). Application marked ready.")
                 return {
                     "success": True,
-                    "status": "READY" if mode == "PREPARE" else "APPLIED",
+                    "status": "READY" if mode == "PREPARE" else "SUBMITTED",
                     "progress_steps": progress_steps,
                     "unanswered_questions": [],
                     "failure_reason": None
@@ -96,17 +195,49 @@ class ApplicationBrowser:
 
             logger.info(f"Navigating to Dice Application: {target_url}")
             progress_steps.append(f"Navigating to job page: {target_url}")
+            await _notify_status(status_callback, "OPENING_JOB")
 
             try:
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=35000)
                 await page.wait_for_timeout(3000)
             except Exception as e:
                 logger.error(f"Failed to load URL {target_url}: {e}")
+                err_str = str(e).lower()
+                if "timeout" in err_str or "timed out" in err_str:
+                    return {
+                        "success": False,
+                        "status": "TIMEOUT",
+                        "progress_steps": progress_steps + [f"Page load timed out: {e}"],
+                        "failure_reason": f"Page load timed out: {e}",
+                        "unanswered_questions": []
+                    }
                 raise e
+
+            # Check for CAPTCHA challenge immediately upon loading
+            if await self._detect_captcha(page):
+                progress_steps.append("CAPTCHA or security challenge detected on Dice.")
+                return {
+                    "success": False,
+                    "status": "CAPTCHA_REQUIRED",
+                    "progress_steps": progress_steps,
+                    "failure_reason": "CAPTCHA challenge detected on page. Manual verification required.",
+                    "unanswered_questions": []
+                }
 
             # Check for Dice login prompt immediately upon loading target URL
             if await self._detect_login_wall(page):
                 return await self._handle_login_required(progress_steps)
+
+            # Check for external employer portal immediately
+            if self._is_external_portal(page.url):
+                progress_steps.append(f"External employer application site detected: {page.url}")
+                return {
+                    "success": False,
+                    "status": "EXTERNAL_PORTAL",
+                    "progress_steps": progress_steps,
+                    "failure_reason": f"Job redirected to external employer portal ({page.url}).",
+                    "unanswered_questions": []
+                }
 
             # Check if we landed on a job detail page vs already on the wizard
             is_wizard = "/wizard" in page.url.lower()
@@ -133,7 +264,7 @@ class ApplicationBrowser:
                         progress_steps.append("Job is verified as already applied on Dice")
                         return {
                             "success": True,
-                            "status": "APPLIED",
+                            "status": "SUBMITTED",
                             "progress_steps": progress_steps,
                             "unanswered_questions": [],
                             "failure_reason": None
@@ -165,17 +296,27 @@ class ApplicationBrowser:
                 if len(page.context.pages) > 1:
                     page = page.context.pages[-1]
 
+                # Check for CAPTCHA after clicking Apply
+                if await self._detect_captcha(page):
+                    progress_steps.append("CAPTCHA or security challenge detected after clicking apply.")
+                    return {
+                        "success": False,
+                        "status": "CAPTCHA_REQUIRED",
+                        "progress_steps": progress_steps,
+                        "failure_reason": "CAPTCHA challenge detected on page. Manual verification required.",
+                        "unanswered_questions": []
+                    }
+
                 # Check if clicking Apply redirected to Dice login
                 if await self._detect_login_wall(page):
                     return await self._handle_login_required(progress_steps)
 
                 # Check if application redirects to external company website
-                curr_url = page.url.lower()
-                if "dice.com" not in curr_url:
+                if self._is_external_portal(page.url):
                     progress_steps.append(f"External employer application site detected: {page.url}")
                     return {
-                        "success": True,
-                        "status": "REVIEW",
+                        "success": False,
+                        "status": "EXTERNAL_PORTAL",
                         "progress_steps": progress_steps,
                         "failure_reason": f"External application site ({page.url}). Please complete manually.",
                         "unanswered_questions": [{
@@ -216,6 +357,7 @@ class ApplicationBrowser:
                     else:
                         # APPLY Mode: Execute submission
                         progress_steps.append("Clicking 'Submit' on Dice...")
+                        await _notify_status(status_callback, "SUBMITTING")
                         await submit_btn.click()
                         await page.wait_for_timeout(5000)
 
@@ -223,9 +365,10 @@ class ApplicationBrowser:
                         is_confirmed = await self._verify_submission_confirmation(page)
                         if is_confirmed:
                             progress_steps.append("Verified application submission confirmation on Dice!")
+                            await _notify_status(status_callback, "SUBMITTED")
                             return {
                                 "success": True,
-                                "status": "APPLIED",
+                                "status": "SUBMITTED",
                                 "progress_steps": progress_steps,
                                 "unanswered_questions": [],
                                 "failure_reason": None
@@ -248,9 +391,10 @@ class ApplicationBrowser:
                             curr_url = page.url.lower()
                             if any(k in curr_url for k in ["/applied", "/confirmation", "status=applied", "/success"]):
                                 progress_steps.append("Verified application submission via confirmation URL on Dice!")
+                                await _notify_status(status_callback, "SUBMITTED")
                                 return {
                                     "success": True,
-                                    "status": "APPLIED",
+                                    "status": "SUBMITTED",
                                     "progress_steps": progress_steps,
                                     "unanswered_questions": [],
                                     "failure_reason": None
@@ -267,12 +411,14 @@ class ApplicationBrowser:
                             }
 
                 # B. Fill Personal Info
+                await _notify_status(status_callback, "FILLING_APPLICATION")
                 filled = await self._fill_personal_info(page, user_profile)
                 if filled:
                     progress_steps.append(f"Populated contact fields: {', '.join(filled)}")
 
                 # C. Select or Upload Resume
                 if full_resume_path.exists():
+                    await _notify_status(status_callback, "UPLOADING_RESUME")
                     uploaded = await self._handle_resume_selection(page, full_resume_path)
                     if uploaded:
                         progress_steps.append(f"Selected resume: {full_resume_path.name}")
@@ -329,7 +475,7 @@ class ApplicationBrowser:
                 "unanswered_questions": []
             }
         finally:
-            if page is not None:
+            if page is not None and own_page:
                 try:
                     await page.close()
                 except Exception:
@@ -339,7 +485,10 @@ class ApplicationBrowser:
         self,
         application_url: str,
         resume_file_path: str,
-        user_profile: UserProfileSchema
+        user_profile: UserProfileSchema,
+        page: Optional[Any] = None,
+        profile_id: str = "default",
+        status_callback: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
         Directly executes the application submission on Dice in APPLY mode.
@@ -348,7 +497,10 @@ class ApplicationBrowser:
             application_url=application_url,
             resume_file_path=resume_file_path,
             user_profile=user_profile,
-            mode="APPLY"
+            mode="APPLY",
+            page=page,
+            profile_id=profile_id,
+            status_callback=status_callback
         )
 
     async def _fill_personal_info(self, page, user_profile: UserProfileSchema) -> List[str]:

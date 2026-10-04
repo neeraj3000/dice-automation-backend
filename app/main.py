@@ -21,7 +21,7 @@ if sys.platform == "win32":
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import connect_db, close_db, get_database
-from app.api import resumes, search, jobs, applications, review, settings as settings_api
+from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session
 
 
 @asynccontextmanager
@@ -65,7 +65,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Dice-Automation] Notice during startup browser verification: {e}")
 
+    # Startup: Start Application Execution Queue & recover pending applications
+    try:
+        from app.services.application_queue import application_queue_manager
+        application_queue_manager.start_worker()
+        await application_queue_manager.recover_pending_on_startup()
+        print("[Dice-Automation] Application execution queue worker started.")
+    except Exception as e:
+        print(f"[Dice-Automation] Notice during application queue startup: {e}")
+
     yield
+
+    # Shutdown: Stop application queue worker
+    try:
+        from app.services.application_queue import application_queue_manager
+        await application_queue_manager.stop_worker()
+        print("[Dice-Automation] Application execution queue worker stopped.")
+    except Exception as e:
+        print(f"[Dice-Automation] Error stopping application queue worker: {e}")
 
     # Shutdown: Close browser context, cancel active login supervisors, and close MongoDB
     try:
@@ -116,11 +133,11 @@ cors_kwargs = {
     "allow_credentials": True,
 }
 if cors_origins_env == "*" or not cors_origins_env:
-    # Allow all HTTP/HTTPS origins safely with regex while preserving credentials
-    cors_kwargs["allow_origin_regex"] = r"^https?://.*"
+    # Allow all HTTP/HTTPS origins and Chrome Extensions safely with regex while preserving credentials
+    cors_kwargs["allow_origin_regex"] = r"^(https?://.*|chrome-extension://.*)"
 else:
     cors_kwargs["allow_origins"] = allowed_origins
-    cors_kwargs["allow_origin_regex"] = r"^https?://([a-zA-Z0-9-]+\.)*dice\.com(:[0-9]+)?$"
+    cors_kwargs["allow_origin_regex"] = r"^((https?://([a-zA-Z0-9-]+\.)*dice\.com(:[0-9]+)?)|chrome-extension://.*)"
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
 
@@ -131,6 +148,7 @@ app.include_router(jobs.router)
 app.include_router(applications.router)
 app.include_router(review.router)
 app.include_router(settings_api.router)
+app.include_router(dice_session.router)
 
 # Also support /api prefix for backwards compatibility
 app.include_router(resumes.router, prefix="/api", include_in_schema=False)
@@ -139,6 +157,7 @@ app.include_router(jobs.router, prefix="/api", include_in_schema=False)
 app.include_router(applications.router, prefix="/api", include_in_schema=False)
 app.include_router(review.router, prefix="/api", include_in_schema=False)
 app.include_router(settings_api.router, prefix="/api", include_in_schema=False)
+app.include_router(dice_session.router, prefix="/api", include_in_schema=False)
 
 @app.get("/")
 async def root():

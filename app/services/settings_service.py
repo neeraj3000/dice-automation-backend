@@ -670,11 +670,19 @@ class SettingsService:
             "is_connected": False
         }
 
-    async def disconnect_dice(self) -> Dict[str, Any]:
-        """Disconnects the local Dice session, removes local cookies, and resets state."""
+    async def disconnect_dice(self, user_id: str = "default") -> Dict[str, Any]:
+        """Disconnects the local Dice session, removes local cookies, securely deletes stored credentials, and terminates context."""
+        try:
+            from app.services.session_store import get_session_store
+            store = get_session_store()
+            await store.delete_session(user_id)
+        except Exception as se:
+            logger.debug(f"Notice deleting session from session store: {se}")
+
         self.clear_local_session()
 
         from app.browser.playwright_manager import playwright_manager
+        await playwright_manager.close_context(user_id)
         if playwright_manager.context:
             try:
                 await playwright_manager.context.clear_cookies()
@@ -684,7 +692,7 @@ class SettingsService:
         try:
             from app.services.dice_session_manager import dice_session_manager
             await dice_session_manager.broadcast("DICE_DISCONNECTED", {
-                "message": "Dice session disconnected on this machine.",
+                "message": "Dice session disconnected successfully on this machine.",
                 "is_connected": False
             })
         except Exception:
@@ -695,6 +703,7 @@ class SettingsService:
             "message": "Dice session disconnected successfully on this machine.",
             "is_connected": False
         }
+
 
     async def import_dice_session(
         self,
@@ -859,6 +868,29 @@ class SettingsService:
             "updated_at": now_iso
         }
         self.save_local_session(session_payload)
+
+        # Also persist via SessionStore abstraction (Local or Persistent with encryption)
+        try:
+            from app.models.session import DiceSession
+            from app.services.session_store import get_session_store
+            session_store = get_session_store()
+            session_obj = DiceSession(
+                user_id="default",
+                status="CONNECTED" if is_connected else "DISCONNECTED",
+                is_connected=is_connected,
+                username=resolved_username if is_connected else "",
+                email=extracted_email if is_connected else "",
+                candidate_id=extracted_candidate_id,
+                cookies_count=len(sanitized_cookies),
+                cookies=sanitized_cookies,
+                local_storage=local_storage or {},
+                identity=next((c.get("value", "") for c in sanitized_cookies if c.get("name") == "identity"), ""),
+                last_verified_at=datetime.now(timezone.utc)
+            )
+            await session_store.save_session("default", session_obj)
+        except Exception as store_err:
+            logger.debug(f"Notice saving session to session_store: {store_err}")
+
 
         # Update local user profile email and name to match this authenticated candidate
         if is_connected and extracted_email:

@@ -3,7 +3,7 @@ services:
     name: dice-automation-backend
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: free
+    plan: starter
     region: oregon
     healthCheckPath: /health
     envVars:
@@ -15,7 +15,13 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4o-mini
-      - key: HEADLESS_BROWSER
+      - key: BROWSER_MODE
+        value: server
+      - key: HEADLESS
         value: "true"
+      - key: BROWSER_DATA_DIR
+        value: /app/data/browser_profiles
+      - key: SESSION_ENCRYPTION_KEY
+        sync: false
       - key: CORS_ORIGINS
         value: "*"

@@ -9,6 +9,12 @@ from app.schemas.search_profile import (
 )
 from app.browser.dice_browser import dice_browser
 from app.services.settings_service import settings_service
+from app.services.matching_service import matching_service
+from app.services.jd_service import jd_service
+from app.services.application_queue import application_queue_manager
+
+import logging
+logger = logging.getLogger(__name__)
 
 def format_profile_doc(doc: Dict[str, Any]) -> SearchProfileResponse:
     data = dict(doc)
@@ -66,7 +72,13 @@ class SearchService:
         res = await self.profiles_col.delete_one({"_id": ObjectId(profile_id)})
         return res.deleted_count > 0
 
-    async def run_search(self, profile_id: str) -> Dict[str, Any]:
+    async def run_search(
+        self,
+        profile_id: str,
+        auto_match: bool = True,
+        auto_queue: Optional[bool] = None,
+        user_id: str = "default"
+    ) -> Dict[str, Any]:
         if not ObjectId.is_valid(profile_id):
             raise HTTPException(status_code=400, detail="Invalid search profile ID")
         profile = await self.profiles_col.find_one({"_id": ObjectId(profile_id)})
@@ -95,6 +107,7 @@ class SearchService:
 
         new_jobs_count = 0
         duplicate_count = 0
+        newly_saved_job_ids: List[str] = []
 
         now = datetime.now(timezone.utc)
         for j in scraped_jobs:
@@ -138,6 +151,7 @@ class SearchService:
                         }}
                     )
                     new_jobs_count += 1
+                    newly_saved_job_ids.append(str(existing["_id"]))
                 else:
                     duplicate_count += 1
             else:
@@ -146,14 +160,55 @@ class SearchService:
                 j_doc["status"] = "DISCOVERED"
                 j_doc["created_at"] = now
                 j_doc["updated_at"] = now
-                await self.jobs_col.insert_one(j_doc)
+                ins = await self.jobs_col.insert_one(j_doc)
                 new_jobs_count += 1
+                newly_saved_job_ids.append(str(ins.inserted_id))
+
+        # 4. Match against resumes
+        if auto_match and newly_saved_job_ids:
+            for jid in newly_saved_job_ids:
+                try:
+                    job_record = await self.jobs_col.find_one({"_id": ObjectId(jid)})
+                    if job_record and not job_record.get("match_result"):
+                        jd_data = await jd_service.analyze_job_description(
+                            job_record.get("description_raw", ""),
+                            job_record.get("title", "")
+                        )
+                        await matching_service.match_job_against_all_resumes(jd_data, job_id=jid)
+                except Exception as me:
+                    logger.debug(f"Auto-matching notice for job {jid}: {me}")
+
+        # 5. Queue applications (if requested or enabled on profile)
+        should_queue = auto_queue
+        if should_queue is None:
+            should_queue = bool(profile.get("auto_apply") or profile.get("queue_applications"))
+
+        queued_count = 0
+        if should_queue and newly_saved_job_ids:
+            try:
+                enqueued = await application_queue_manager.enqueue_jobs(
+                    job_ids=newly_saved_job_ids,
+                    user_id=user_id,
+                    mode="APPLY"
+                )
+                queued_count = len(enqueued)
+            except Exception as qe:
+                logger.warning(f"Failed to auto-queue jobs: {qe}")
 
         return {
             "profile_name": profile.get("name"),
             "total_found": len(scraped_jobs),
             "new_jobs_added": new_jobs_count,
-            "duplicates_skipped": duplicate_count
+            "duplicates_skipped": duplicate_count,
+            "new_job_ids": newly_saved_job_ids,
+            "queued_for_application": queued_count
         }
+
+    async def match_and_queue_job(self, job_id: str, user_id: str = "default") -> Dict[str, Any]:
+        """Matches a single job against resumes and enqueues it for application."""
+        if not ObjectId.is_valid(job_id):
+            raise HTTPException(status_code=400, detail="Invalid job ID")
+        return await application_queue_manager.enqueue_job(job_id=job_id, user_id=user_id, mode="APPLY")
+
 
 search_service = SearchService()

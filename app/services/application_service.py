@@ -132,19 +132,19 @@ class ApplicationService:
             "updated_at": datetime.now(timezone.utc)
         }
 
-        if browser_res["status"] == "APPLIED":
+        if browser_res["status"] in ["APPLIED", "SUBMITTED"]:
             now_ts = datetime.now(timezone.utc)
             update_fields["applied_at"] = now_ts
             await self.jobs_col.update_one(
                 {"_id": job["_id"]},
                 {"$set": {"status": "APPLIED", "applied_at": now_ts, "failure_reason": None}}
             )
-        elif browser_res["status"] == "FAILED":
+        elif browser_res["status"] in ["FAILED", "EXTERNAL_PORTAL", "CAPTCHA_REQUIRED", "LOGIN_REQUIRED", "SESSION_EXPIRED", "TIMEOUT"]:
             await self.jobs_col.update_one(
                 {"_id": job["_id"]},
                 {"$set": {
                     "status": "FAILED",
-                    "failure_reason": browser_res.get("failure_reason") or "Application submission failed.",
+                    "failure_reason": browser_res.get("failure_reason") or f"Application halted: {browser_res['status']}",
                     "updated_at": datetime.now(timezone.utc)
                 }}
             )

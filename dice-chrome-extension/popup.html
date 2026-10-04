@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dice Session Sync</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-group">
+        <div class="dice-icon">⚄</div>
+        <div>
+          <h1 class="title">Dice Session Sync</h1>
+          <p class="subtitle">Cloud Job Automation Companion</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- Connection Status Card -->
+    <div class="card status-card" id="statusCard">
+      <div class="status-header">
+        <span class="status-label">Backend Connection</span>
+        <div class="status-badge" id="statusBadge">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-text" id="statusText">Checking...</span>
+        </div>
+      </div>
+
+      <div class="account-details" id="accountDetails" style="display: none;">
+        <div class="detail-row">
+          <span class="detail-label">Candidate:</span>
+          <span class="detail-value" id="detailUsername">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Email:</span>
+          <span class="detail-value" id="detailEmail">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Last Verified:</span>
+          <span class="detail-value" id="detailVerified">-</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification / Alert Message -->
+    <div class="alert" id="alertBox" style="display: none;">
+      <span class="alert-icon" id="alertIcon">ℹ</span>
+      <span class="alert-message" id="alertMessage"></span>
+    </div>
+
+    <!-- Primary Actions -->
+    <div class="actions">
+      <button class="btn btn-primary" id="syncBtn">
+        <span class="btn-spinner" id="btnSpinner" style="display: none;"></span>
+        <span class="btn-icon" id="btnIcon">⟳</span>
+        <span id="btnText">Sync Dice Account</span>
+      </button>
+
+      <a href="#" class="btn btn-secondary" id="openDiceBtn">
+        <span>↗</span>
+        <span>Open Dice.com</span>
+      </a>
+    </div>
+
+    <!-- Instructions Checklist -->
+    <div class="card steps-card">
+      <div class="steps-title">Sync Workflow</div>
+      <ol class="steps-list">
+        <li>Log into <a href="https://www.dice.com/dashboard/login" target="_blank" class="step-link">Dice.com</a> with your email, password, or Google login.</li>
+        <li>Complete any two-factor (2FA) or captcha verification.</li>
+        <li>Click <strong>Sync Dice Account</strong> above.</li>
+        <li>Your server will securely receive the authenticated session.</li>
+      </ol>
+    </div>
+
+    <!-- Expandable Settings Section -->
+    <div class="settings-toggle" id="settingsToggle">
+      <span>⚙ Backend Connection Settings</span>
+      <span id="settingsArrow">▼</span>
+    </div>
+
+    <div class="settings-panel" id="settingsPanel" style="display: none;">
+      <label for="backendUrlInput" class="settings-label">Backend API URL:</label>
+      <input type="text" id="backendUrlInput" class="settings-input" placeholder="http://localhost:8000">
+      <button class="btn btn-save" id="saveSettingsBtn">Save Backend URL</button>
+      <div class="settings-help">Production example: https://dice-automation-backend.onrender.com</div>
+    </div>
+
+    <!-- Footer Security Notice -->
+    <footer class="footer">
+      <div class="security-badge">
+        <span class="lock-icon">🔒</span>
+        <span>Passwords are never accessed or stored. Session tokens are encrypted in transit and at rest.</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,43 +1,92 @@
 import sys
 import os
+import re
+import json
 import asyncio
+import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from playwright.async_api import async_playwright, Playwright, BrowserContext, Page
 from app.config import settings
-from app.services.settings_service import settings_service
-
-import logging
 
 logger = logging.getLogger(__name__)
 
 class PlaywrightManager:
+    """
+    Production-grade reusable browser infrastructure for Playwright.
+    
+    Supports:
+    - Server/Headless mode & Local/Headed mode via BROWSER_MODE and HEADLESS env vars
+    - Persistent browser contexts
+    - Isolated profiles per user/session under BROWSER_DATA_DIR / {profile_id}
+    - Safe cookie injection with per-cookie fallback
+    - LocalStorage injection via context init_scripts
+    - Browser reuse with graceful recovery on disconnects/crashes
+    - Cross-platform lockfile cleanup without OS-specific assumptions
+    """
+
     def __init__(self):
         self.playwright: Optional[Playwright] = None
-        self.context: Optional[BrowserContext] = None
-        self.profile_dir = settings.DATA_DIR / "browser_profile"
-        self.profile_dir.mkdir(parents=True, exist_ok=True)
-        self._lock = asyncio.Lock()
-        self._install_lock = asyncio.Lock()
-        self._current_headless: Optional[bool] = None
+        self._contexts: Dict[str, BrowserContext] = {}
+        self._context_headless: Dict[str, bool] = {}
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._lock: Optional[asyncio.Lock] = None
+        self._install_lock: Optional[asyncio.Lock] = None
+        self._profile_locks: Dict[str, asyncio.Lock] = {}
+
+    def _ensure_loop_and_locks(self):
+        """Ensures that asyncio locks and driver references are bound to the currently running event loop."""
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if self._loop != current_loop or self._lock is None:
+            self._loop = current_loop
+            self._lock = asyncio.Lock()
+            self._install_lock = asyncio.Lock()
+            self._profile_locks.clear()
+            self._contexts.clear()
+            self._context_headless.clear()
+            self.playwright = None
 
     @property
-    def has_display(self) -> bool:
-        """Determines if the current system environment has a graphical display capable of rendering windows."""
+    def browser_mode(self) -> str:
+        """Returns 'local' or 'server'."""
+        mode = os.environ.get("BROWSER_MODE", "").lower().strip()
+        if mode in ("local", "server"):
+            return mode
         if os.environ.get("RENDER"):
-            return False
-        return sys.platform == "win32" or bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+            return "server"
+        return getattr(settings, "BROWSER_MODE", "local")
 
     @property
     def headless(self) -> bool:
-        """Determines whether browser instances should be launched in headless mode."""
-        if os.environ.get("RENDER"):
+        """
+        Determines default headless state based on env vars and browser mode:
+        1. Explicit HEADLESS env var ('true'/'false')
+        2. Explicit HEADLESS_BROWSER env var (legacy alias)
+        3. Explicit settings.HEADLESS / settings.HEADLESS_BROWSER
+        4. If BROWSER_MODE == 'server' -> True
+        5. Default for 'local' -> False
+        """
+        env_headless = os.environ.get("HEADLESS")
+        if env_headless is not None:
+            return env_headless.lower() in ("true", "1", "yes")
+
+        legacy_env = os.environ.get("HEADLESS_BROWSER")
+        if legacy_env is not None:
+            return legacy_env.lower() in ("true", "1", "yes")
+
+        if settings.HEADLESS is not None:
+            return bool(settings.HEADLESS)
+
+        if settings.HEADLESS_BROWSER is not None:
+            return bool(settings.HEADLESS_BROWSER)
+
+        if self.browser_mode == "server":
             return True
-        headless_env = os.environ.get("HEADLESS_BROWSER")
-        if headless_env is not None:
-            return headless_env.lower() in ("true", "1", "yes")
-        if not self.has_display:
-            return True
+
         return False
 
     @property
@@ -46,20 +95,94 @@ class PlaywrightManager:
 
     @property
     def is_cloud_mode(self) -> bool:
-        """Returns True if the backend is running in a headless / cloud environment without a direct user desktop."""
-        if os.environ.get("RENDER"):
-            return True
-        return not self.has_display or os.environ.get("HEADLESS_BROWSER", "").lower() in ("true", "1", "yes")
+        """True if running in server mode or headless mode."""
+        return self.browser_mode == "server" or self.headless
+
+    @property
+    def base_data_dir(self) -> Path:
+        """Base directory storing isolated browser profiles."""
+        env_dir = os.environ.get("BROWSER_DATA_DIR")
+        if env_dir:
+            p = Path(env_dir)
+        elif settings.BROWSER_DATA_DIR:
+            p = Path(settings.BROWSER_DATA_DIR)
+        else:
+            p = settings.DATA_DIR / "browser_profiles"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    # Backward-compatibility alias for single profile path
+    @property
+    def profile_dir(self) -> Path:
+        return self.get_profile_dir("default")
+
+    @property
+    def context(self) -> Optional[BrowserContext]:
+        """Provides backward-compatible access to the active default BrowserContext."""
+        ctx = self._contexts.get("default")
+        if ctx and not (hasattr(ctx, "is_closed") and ctx.is_closed()):
+            return ctx
+        for c in self._contexts.values():
+            if c and not (hasattr(c, "is_closed") and c.is_closed()):
+                return c
+        return None
+
+    @context.setter
+    def context(self, value: Optional[BrowserContext]):
+        if value is None:
+            self._contexts.pop("default", None)
+            self._context_headless.pop("default", None)
+        else:
+            self._contexts["default"] = value
+
+    def _get_profile_lock(self, profile_id: str) -> asyncio.Lock:
+        self._ensure_loop_and_locks()
+        if profile_id not in self._profile_locks:
+            self._profile_locks[profile_id] = asyncio.Lock()
+        return self._profile_locks[profile_id]
+
+    def get_profile_dir(self, profile_id: str = "default") -> Path:
+        """Returns isolated filesystem directory for the given profile ID."""
+        clean_id = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', str(profile_id or "default").strip()) or "default"
+        # Support legacy folder structure if default exists at data/browser_profile
+        if clean_id == "default":
+            legacy_dir = settings.DATA_DIR / "browser_profile"
+            if legacy_dir.exists() and not (self.base_data_dir / "default").exists():
+                return legacy_dir
+
+        p = self.base_data_dir / clean_id
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def clean_stale_locks(self, profile_dir: Path):
+        """Cross-platform removal of stale Chromium lockfiles within a profile directory."""
+        lock_names = ("SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile")
+        for name in lock_names:
+            lock_path = profile_dir / name
+            try:
+                if lock_path.exists() or lock_path.is_symlink():
+                    lock_path.unlink()
+            except Exception as e:
+                logger.debug(f"Could not unlink stale lockfile '{lock_path}': {e}")
+
+    async def start(self) -> Playwright:
+        """Starts the shared Playwright driver if not running."""
+        self._ensure_loop_and_locks()
+        async with self._lock:
+            if not self.playwright:
+                self.playwright = await async_playwright().start()
+            return self.playwright
 
     async def ensure_browser_installed(self) -> bool:
         """
         Verifies that the required Playwright browser binary (Chromium) is installed.
         Does NOT download or install at runtime; browsers must be installed during the build phase.
         """
+        self._ensure_loop_and_locks()
         async with self._install_lock:
             if not self.playwright:
                 try:
-                    self.playwright = await async_playwright().start()
+                    await self.start()
                 except Exception as e:
                     logger.error(f"Failed to start async_playwright in ensure_browser_installed: {e}")
                     return False
@@ -83,16 +206,19 @@ class PlaywrightManager:
 
     async def get_browser_status(self) -> dict:
         """Returns diagnostic info about browser binary presence and execution mode."""
+        self._ensure_loop_and_locks()
         if not self.playwright:
             try:
-                self.playwright = await async_playwright().start()
+                await self.start()
             except Exception as e:
                 return {
                     "installed": False,
                     "error": str(e),
+                    "browser_mode": self.browser_mode,
                     "headless": self.headless,
                     "is_cloud_mode": self.is_cloud_mode,
-                    "has_display": self.has_display
+                    "browser_data_dir": str(self.base_data_dir),
+                    "active_profiles": list(self._contexts.keys())
                 }
 
         exec_path = None
@@ -106,17 +232,20 @@ class PlaywrightManager:
         return {
             "installed": is_installed,
             "executable_path": exec_path,
+            "browser_mode": self.browser_mode,
             "headless": self.headless,
             "is_cloud_mode": self.is_cloud_mode,
-            "has_display": self.has_display
+            "browser_data_dir": str(self.base_data_dir),
+            "active_profiles": list(self._contexts.keys())
         }
 
-    async def add_cookies_safely(self, cookies: list) -> int:
+    async def add_cookies_safely(self, cookies: list, profile_id: str = "default") -> int:
         """
-        Safely sanitizes and injects cookies into the active browser context.
+        Safely sanitizes and injects cookies into the browser context for the given profile.
         Uses per-cookie fallback so that a single rejected cookie cannot block others.
         """
-        if not self.context or not cookies:
+        ctx = self._contexts.get(profile_id) or self.context
+        if not ctx or not cookies:
             return 0
 
         from app.services.settings_service import sanitize_cookie_for_playwright
@@ -132,7 +261,7 @@ class PlaywrightManager:
 
         # Try bulk insert first
         try:
-            await self.context.add_cookies(sanitized)
+            await ctx.add_cookies(sanitized)
             return len(sanitized)
         except Exception as bulk_err:
             logger.warning(f"Bulk add_cookies failed ({bulk_err}). Falling back to item-by-item injection...")
@@ -140,60 +269,84 @@ class PlaywrightManager:
         success_count = 0
         for sc in sanitized:
             try:
-                await self.context.add_cookies([sc])
+                await ctx.add_cookies([sc])
                 success_count += 1
             except Exception as single_err:
                 logger.debug(f"Skipping problematic cookie '{sc.get('name')}': {single_err}")
 
         return success_count
 
-    async def get_context(self, headless: Optional[bool] = None) -> BrowserContext:
-        async with self._lock:
-            # Determine target headless mode
+    async def inject_local_storage(self, items: Dict[str, str], profile_id: str = "default", domain_pattern: str = "dice.com"):
+        """Registers an init_script to inject localStorage items for a target domain."""
+        ctx = self._contexts.get(profile_id) or self.context
+        if not ctx or not items:
+            return
+
+        escaped_json = json.dumps(items)
+        script = f"""
+        (() => {{
+            try {{
+                if (window.location.hostname.includes("{domain_pattern}")) {{
+                    const items = {escaped_json};
+                    for (const [k, v] of Object.entries(items)) {{
+                        if (!window.localStorage.getItem(k)) {{
+                            window.localStorage.setItem(k, v);
+                        }}
+                    }}
+                }}
+            }} catch (e) {{}}
+        }})();
+        """
+        await ctx.add_init_script(script)
+        logger.info(f"Registered init_script for profile '{profile_id}' to inject {len(items)} localStorage tokens on {domain_pattern}")
+
+    async def get_context(
+        self,
+        profile_id: str = "default",
+        headless: Optional[bool] = None,
+        restore_session: bool = True
+    ) -> BrowserContext:
+        """
+        Returns or creates an isolated persistent BrowserContext for the specified profile_id.
+        Profiles are fully segregated on the filesystem.
+        """
+        self._ensure_loop_and_locks()
+        profile_lock = self._get_profile_lock(profile_id)
+        async with profile_lock:
+            # 1. Determine target headless mode
             if headless is not None:
                 target_headless = headless
             else:
-                app_settings = await settings_service.get_settings()
-                headless_env = os.environ.get("HEADLESS_BROWSER")
-                if headless_env is not None:
-                    target_headless = headless_env.lower() in ("true", "1", "yes")
-                elif not self.has_display:
-                    target_headless = True
-                else:
-                    target_headless = app_settings.headless_browser
+                target_headless = self.headless
 
-            if self.context:
+            # 2. Check if existing context can be reused
+            existing_ctx = self._contexts.get(profile_id)
+            if existing_ctx:
                 try:
-                    if hasattr(self.context, "is_closed") and self.context.is_closed():
-                        self.context = None
-                    elif self._current_headless is not None and self._current_headless != target_headless:
-                        logger.info(f"Switching browser context from headless={self._current_headless} to headless={target_headless}")
+                    if hasattr(existing_ctx, "is_closed") and existing_ctx.is_closed():
+                        self._contexts.pop(profile_id, None)
+                    elif self._context_headless.get(profile_id) != target_headless:
+                        logger.info(f"Switching profile '{profile_id}' context headless={self._context_headless.get(profile_id)} -> {target_headless}")
                         try:
-                            await self.context.close()
+                            await existing_ctx.close()
                         except Exception:
                             pass
-                        self.context = None
+                        self._contexts.pop(profile_id, None)
                     else:
-                        _ = self.context.pages
-                        return self.context
+                        _ = existing_ctx.pages
+                        return existing_ctx
                 except Exception:
-                    self.context = None
+                    self._contexts.pop(profile_id, None)
 
+            # 3. Ensure Playwright driver is running
             if not self.playwright:
-                self.playwright = await async_playwright().start()
+                await self.start()
 
-            # Check for system Google Chrome across Windows and Linux
-            channel = None
-            google_chrome_paths = [
-                Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-                Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
-                Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "Application" / "chrome.exe",
-                Path("/usr/bin/google-chrome"),
-            ]
-            if any(p.exists() for p in google_chrome_paths):
-                channel = "chrome"
+            # 4. Resolve isolated profile directory & clean stale locks
+            profile_dir = self.get_profile_dir(profile_id)
+            self.clean_stale_locks(profile_dir)
 
-
+            # 5. Build launch arguments (cross-platform, container-friendly)
             args = [
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
@@ -201,13 +354,6 @@ class PlaywrightManager:
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
                 "--disable-setuid-sandbox",
-                "--disable-background-networking",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-breakpad",
-                "--disable-component-extensions-with-background-pages",
-                "--disable-ipc-flooding-protection",
-                "--disable-renderer-backgrounding",
                 "--mute-audio",
             ]
             if not target_headless:
@@ -215,51 +361,22 @@ class PlaywrightManager:
 
             viewport = None if not target_headless else {"width": 1280, "height": 800}
 
-            def _clean_stale_locks():
-                for lock_name in ("SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"):
-                    lock_file = self.profile_dir / lock_name
-                    try:
-                        if lock_file.exists() or lock_file.is_symlink():
-                            lock_file.unlink()
-                    except Exception:
-                        pass
-
-            def _clean_orphaned_chrome():
-                if sys.platform == "win32":
-                    try:
-                        import subprocess, base64
-                        cmd = 'Get-CimInstance Win32_Process -Filter "Name = \'chrome.exe\'" | Where-Object { $_.CommandLine -like "*browser_profile*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }'
-                        enc = base64.b64encode(cmd.encode("utf-16le")).decode("ascii")
-                        subprocess.run(["powershell", "-NoProfile", "-EncodedCommand", enc], capture_output=True, timeout=5)
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        import subprocess
-                        subprocess.run(["pkill", "-f", "browser_profile"], capture_output=True, timeout=3)
-                    except Exception:
-                        pass
-
-            # Proactively clean stale locks and orphaned profile processes before launch
-            _clean_orphaned_chrome()
-            _clean_stale_locks()
-
             launch_opts = {
-                "user_data_dir": str(self.profile_dir),
+                "user_data_dir": str(profile_dir),
                 "headless": target_headless,
                 "args": args,
                 "viewport": viewport,
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             }
 
+            # Optional custom channel if set in env
+            channel = os.environ.get("BROWSER_CHANNEL") or None
+            if channel:
+                launch_opts["channel"] = channel
+
+            # 6. Launch persistent context with crash recovery
             try:
-                if channel:
-                    self.context = await self.playwright.chromium.launch_persistent_context(
-                        channel=channel,
-                        **launch_opts
-                    )
-                else:
-                    self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
+                ctx = await self.playwright.chromium.launch_persistent_context(**launch_opts)
             except Exception as e:
                 err_str = str(e)
                 if "Executable doesn't exist" in err_str or "playwright install" in err_str:
@@ -268,65 +385,57 @@ class PlaywrightManager:
                         "Chromium must be installed during the build phase using 'python -m playwright install --with-deps chromium'."
                     )
                     raise
-                if channel:
-                    logger.warning(f"Browser launch with channel '{channel}' failed ({e}). Retrying with default Chromium...")
-                    _clean_orphaned_chrome()
-                    _clean_stale_locks()
-                    try:
-                        self.context = await self.playwright.chromium.launch_persistent_context(**launch_opts)
-                    except Exception as retry_err:
-                        logger.error(f"Fallback Chromium launch failed: {retry_err}")
-                        raise
-                else:
-                    logger.error(f"Browser launch failed: {e}")
+
+                logger.warning(f"Initial launch failed for profile '{profile_id}' ({e}). Cleaning stale locks and retrying...")
+                self.clean_stale_locks(profile_dir)
+
+                # If connection was severed or loop detached, reinitialize driver
+                if "has no attribute 'send'" in err_str or "Connection closed" in err_str or "Target closed" in err_str:
+                    self.playwright = None
+                    await self.start()
+
+                try:
+                    ctx = await self.playwright.chromium.launch_persistent_context(**launch_opts)
+                except Exception as retry_err:
+                    logger.error(f"Failed to launch persistent context on retry for profile '{profile_id}': {retry_err}")
                     raise
 
-            self._current_headless = target_headless
+            self._contexts[profile_id] = ctx
+            self._context_headless[profile_id] = target_headless
 
-            # Restore saved cookies from LOCAL session file into context
-            try:
-                local_sess = settings_service.get_local_session()
-                if local_sess and local_sess.get("cookies"):
-                    added = await self.add_cookies_safely(local_sess["cookies"])
-                    if added > 0:
-                        logger.info(f"Restored {added} saved Dice cookies from local session file into browser context.")
+            # 7. Restore authenticated session state for profile context via SessionStore & restore_dice_session
+            if restore_session:
+                try:
+                    from app.services.session_store import get_session_store
+                    from app.services.dice_session_restorer import restore_dice_session
+                    store = get_session_store()
+                    sess_model = await store.get_session(profile_id)
+                    if sess_model:
+                        await restore_dice_session(ctx, sess_model)
+                    elif profile_id == "default":
+                        from app.services.settings_service import settings_service
+                        local_sess = settings_service.get_local_session()
+                        if local_sess:
+                            await restore_dice_session(ctx, local_sess)
+                except Exception as restore_err:
+                    logger.debug(f"Could not restore session for profile '{profile_id}': {restore_err}")
 
-                # Restore saved localStorage tokens (AWS Cognito idToken, refreshToken) into context
-                saved_ls = (local_sess or {}).get("local_storage", {})
-                if saved_ls and isinstance(saved_ls, dict):
-                    import json
-                    auth_ls = {
-                        k: v for k, v in saved_ls.items()
-                        if isinstance(v, str) and any(t in k.lower() for t in ("token", "auth", "cognito", "user"))
-                    }
-                    if auth_ls:
-                        escaped_json = json.dumps(auth_ls)
-                        script = f"""
-                        (() => {{
-                            try {{
-                                if (window.location.hostname.includes("dice.com")) {{
-                                    const items = {escaped_json};
-                                    for (const [k, v] of Object.entries(items)) {{
-                                        if (!window.localStorage.getItem(k)) {{
-                                            window.localStorage.setItem(k, v);
-                                        }}
-                                    }}
-                                }}
-                            }} catch (e) {{}}
-                        }})();
-                        """
-                        await self.context.add_init_script(script)
-                        logger.info(f"Registered init_script to restore {len(auth_ls)} localStorage auth tokens on dice.com")
-            except Exception as e:
-                logger.debug(f"Could not restore local session cookies/storage: {e}")
+            return ctx
 
-            return self.context
-
-    async def get_new_page(self, headless: Optional[bool] = None) -> Page:
+    async def get_new_page(
+        self,
+        profile_id: str = "default",
+        headless: Optional[bool] = None
+    ) -> Page:
+        """
+        Creates a new Page in the isolated context for profile_id.
+        Features automatic crash recovery and zombie page cleanup.
+        """
+        self._ensure_loop_and_locks()
         for attempt in range(2):
             try:
-                context = await self.get_context(headless=headless)
-                # Clean up any closed or zombie pages in context to prevent memory leaks in production
+                context = await self.get_context(profile_id=profile_id, headless=headless)
+                # Cleanup older zombie pages to prevent memory leaks
                 open_pages = [p for p in context.pages if not p.is_closed()]
                 if len(open_pages) > 3:
                     for old_p in open_pages[:-2]:
@@ -336,26 +445,48 @@ class PlaywrightManager:
                             pass
                 return await context.new_page()
             except Exception as e:
-                logger.warning(f"Failed to create new page on attempt {attempt + 1}: {e}. Resetting browser context...")
-                await self.close()
+                logger.warning(f"Failed to create new page for profile '{profile_id}' on attempt {attempt + 1}: {e}. Resetting context...")
+                await self.close_context(profile_id)
                 if attempt == 1:
                     raise
 
+    async def close_context(self, profile_id: str):
+        """Closes a specific profile context and unlinks lockfiles."""
+        self._ensure_loop_and_locks()
+        ctx = self._contexts.pop(profile_id, None)
+        self._context_headless.pop(profile_id, None)
+        if ctx:
+            try:
+                await ctx.close()
+            except Exception as e:
+                logger.debug(f"Error closing context for profile '{profile_id}': {e}")
+        profile_dir = self.get_profile_dir(profile_id)
+        self.clean_stale_locks(profile_dir)
+
     async def close(self):
+        """Closes all active profile contexts and stops Playwright."""
+        self._ensure_loop_and_locks()
         async with self._lock:
-            if self.context:
+            for profile_id, ctx in list(self._contexts.items()):
                 try:
-                    await self.context.close()
+                    await ctx.close()
                 except Exception:
                     pass
-                self.context = None
+                profile_dir = self.get_profile_dir(profile_id)
+                self.clean_stale_locks(profile_dir)
+
+            self._contexts.clear()
+            self._context_headless.clear()
+
             if self.playwright:
                 try:
                     await self.playwright.stop()
                 except Exception:
                     pass
                 self.playwright = None
-            self._current_headless = None
 
+    async def close_all(self):
+        """Alias for close()."""
+        await self.close()
 
 playwright_manager = PlaywrightManager()
