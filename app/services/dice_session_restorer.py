@@ -429,8 +429,20 @@ async def verify_dice_session(
 
     except Exception as nav_err:
         logger.warning(f"Browser navigation error verifying Dice session: {nav_err}")
-        state = SessionState.BROWSER_ERROR
-        reason = f"Browser navigation error: {nav_err}"
+        # If session has genuine tokens, check via lightweight HTTP fallback before declaring BROWSER_ERROR
+        try:
+            from app.services.settings_service import settings_service
+            cookies = getattr(session, "cookies", []) or (session.get("cookies", []) if isinstance(session, dict) else [])
+            http_check = await settings_service._verify_cookies_via_http(cookies)
+            if http_check.get("is_connected"):
+                state = SessionState.CONNECTED
+                reason = "Dice session authenticated and verified successfully (HTTP fallback)."
+            else:
+                state = SessionState.BROWSER_ERROR
+                reason = f"Browser navigation error: {nav_err}"
+        except Exception:
+            state = SessionState.BROWSER_ERROR
+            reason = f"Browser navigation error: {nav_err}"
     finally:
         if created_page and active_page:
             try:

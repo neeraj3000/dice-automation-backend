@@ -346,15 +346,30 @@ class PlaywrightManager:
             profile_dir = self.get_profile_dir(profile_id)
             self.clean_stale_locks(profile_dir)
 
-            # 5. Build launch arguments (cross-platform, container-friendly)
+            # 5. Build launch arguments (cross-platform, container-friendly, low-memory optimized)
             args = [
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-infobars",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
+                "--disable-software-rasterizer",
                 "--disable-setuid-sandbox",
                 "--mute-audio",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-ipc-flooding-protection",
+                "--disable-breakpad",
+                "--disable-extensions",
+                "--disable-component-extensions-with-background-pages",
+                "--force-color-profile=srgb",
+                "--metrics-recording-only",
+                "--renderer-process-limit=1",
+                "--js-flags=--max-old-space-size=128",
             ]
             if not target_headless:
                 args.append("--start-maximized")
@@ -399,6 +414,31 @@ class PlaywrightManager:
                 except Exception as retry_err:
                     logger.error(f"Failed to launch persistent context on retry for profile '{profile_id}': {retry_err}")
                     raise
+
+            # Attach lightweight route filter to block images, media, fonts, and trackers in headless/server mode
+            if target_headless or self.browser_mode == "server":
+                async def _route_filter(route):
+                    try:
+                        req = route.request
+                        rtype = req.resource_type
+                        url_lower = req.url.lower()
+                        if rtype in ("image", "media", "font"):
+                            await route.abort()
+                        elif any(ad in url_lower for ad in (
+                            "doubleclick.net", "sift.com", "google-analytics.com",
+                            "googletagmanager.com", "gtm.js", "adnxs.com",
+                            "hotjar.com", "amplitude.com", "segment.io"
+                        )):
+                            await route.abort()
+                        else:
+                            await route.continue_()
+                    except Exception:
+                        pass
+
+                try:
+                    await ctx.route("**/*", _route_filter)
+                except Exception as re:
+                    logger.debug(f"Route handler attachment notice: {re}")
 
             self._contexts[profile_id] = ctx
             self._context_headless[profile_id] = target_headless

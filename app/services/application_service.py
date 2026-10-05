@@ -115,6 +115,38 @@ class ApplicationService:
             res = await self.apps_col.insert_one(app_data)
             app_id = res.inserted_id
 
+        # Pre-check: Validate that candidate has active session tokens before launching browser
+        from app.services.session_store import get_session_store
+        from app.services.dice_session_restorer import has_required_auth_tokens
+        store = get_session_store()
+        active_sess = await store.get_session("default")
+        has_tokens = has_required_auth_tokens(active_sess)
+        if not has_tokens:
+            local_sess = settings_service.get_local_session()
+            has_tokens = has_required_auth_tokens(local_sess)
+
+        if not has_tokens:
+            fail_msg = "Dice login required. Please connect your Dice account using the Dice Sync Extension."
+            await self.apps_col.update_one(
+                {"_id": app_id},
+                {"$set": {
+                    "status": "LOGIN_REQUIRED",
+                    "failure_reason": fail_msg,
+                    "progress_steps": app_data["progress_steps"] + [fail_msg],
+                    "updated_at": datetime.now(timezone.utc)
+                }}
+            )
+            await self.jobs_col.update_one(
+                {"_id": job["_id"]},
+                {"$set": {
+                    "status": "FAILED",
+                    "failure_reason": fail_msg,
+                    "updated_at": datetime.now(timezone.utc)
+                }}
+            )
+            saved_app = await self.apps_col.find_one({"_id": app_id})
+            return format_app_doc(saved_app, [])
+
         # Run Browser automation
         user_profile = await settings_service.get_profile()
         browser_res = await application_browser.prepare_application(
@@ -221,6 +253,29 @@ class ApplicationService:
                 {"_id": ObjectId(app_id)},
                 {"$set": {"resume_id": resume["_id"], "resume_name": resume.get("display_name", "Resume")}}
             )
+
+        # Pre-check: Validate active session before browser launch
+        from app.services.session_store import get_session_store
+        from app.services.dice_session_restorer import has_required_auth_tokens
+        store = get_session_store()
+        active_sess = await store.get_session("default")
+        has_tokens = has_required_auth_tokens(active_sess)
+        if not has_tokens:
+            local_sess = settings_service.get_local_session()
+            has_tokens = has_required_auth_tokens(local_sess)
+
+        if not has_tokens:
+            fail_msg = "Dice login required. Please connect your Dice account using the Dice Sync Extension."
+            await self.apps_col.update_one(
+                {"_id": ObjectId(app_id)},
+                {"$set": {
+                    "status": "LOGIN_REQUIRED",
+                    "failure_reason": fail_msg,
+                    "updated_at": datetime.now(timezone.utc)
+                }}
+            )
+            updated = await self.apps_col.find_one({"_id": ObjectId(app_id)})
+            return format_app_doc(updated, [])
 
         user_profile = await settings_service.get_profile()
         now = datetime.now(timezone.utc)

@@ -243,6 +243,18 @@ class ApplicationBrowser:
             is_wizard = "/wizard" in page.url.lower()
 
             if not is_wizard:
+                # Wait up to 8 seconds for React to hydrate the interactive button or applied badge
+                try:
+                    await page.wait_for_selector(
+                        'a[data-testid="apply-button"], button[data-testid="apply-button"], button[data-cy="apply-button"], '
+                        'a:has-text("Apply Now"), button:has-text("Apply Now"), a:has-text("Easy Apply"), button:has-text("Easy Apply"), '
+                        '#applied-label, [data-testid="applied-button"], button:has-text("Applied")',
+                        state="visible",
+                        timeout=8000
+                    )
+                except Exception:
+                    pass
+
                 # Find active Apply button on job detail page
                 apply_btn = page.locator(
                     'a[data-testid="apply-button"], button[data-testid="apply-button"], '
@@ -252,7 +264,20 @@ class ApplicationBrowser:
                     'button:has-text("Apply with profile"), a:has-text("Apply"), button:has-text("Apply")'
                 ).first
 
-                has_apply_btn = await apply_btn.count() > 0 and await apply_btn.is_visible()
+                has_apply_btn = False
+                try:
+                    has_apply_btn = await apply_btn.count() > 0 and await apply_btn.is_visible()
+                except Exception as vis_err:
+                    logger.debug(f"Apply button visibility check notice: {vis_err}")
+
+                # Immediate check: if apply button points to login, user is unauthenticated on Dice
+                if has_apply_btn:
+                    try:
+                        href_attr = (await apply_btn.get_attribute("href") or "").lower()
+                        if "/dashboard/login" in href_attr or "login.dice.com" in href_attr or "redirecturl=" in href_attr:
+                            return await self._handle_login_required(progress_steps)
+                    except Exception:
+                        pass
 
                 # Check if job was truly already applied to (ONLY if NO apply button exists AND explicit applied badge exists)
                 if not has_apply_btn:
@@ -260,18 +285,25 @@ class ApplicationBrowser:
                         '#applied-label, [data-testid="applied-button"], button:has-text("Applied")[disabled], '
                         'span[data-testid*="applied"], div[data-testid*="applied"], [data-testid*="applied-badge"]'
                     ).first
-                    if await applied_badge.count() and await applied_badge.is_visible():
-                        progress_steps.append("Job is verified as already applied on Dice")
-                        return {
-                            "success": True,
-                            "status": "SUBMITTED",
-                            "progress_steps": progress_steps,
-                            "unanswered_questions": [],
-                            "failure_reason": None
-                        }
+                    try:
+                        if await applied_badge.count() and await applied_badge.is_visible():
+                            progress_steps.append("Job is verified as already applied on Dice")
+                            return {
+                                "success": True,
+                                "status": "SUBMITTED",
+                                "progress_steps": progress_steps,
+                                "unanswered_questions": [],
+                                "failure_reason": None
+                            }
+                    except Exception:
+                        pass
 
                 if has_apply_btn:
-                    btn_text = (await apply_btn.inner_text()).strip()
+                    btn_text = "Apply"
+                    try:
+                        btn_text = (await apply_btn.inner_text()).strip() or "Apply"
+                    except Exception:
+                        pass
                     progress_steps.append(f"Clicked '{btn_text}' on Dice job page")
 
                     target_attr = await apply_btn.get_attribute("target") or ""
