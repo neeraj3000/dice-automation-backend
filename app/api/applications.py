@@ -22,22 +22,27 @@ async def start_application(req: ApplicationCreate, user: Optional[dict] = Depen
     return await application_service.prepare_application(req)
 
 @router.post("/prepare", response_model=ApplicationResponse)
-async def prepare_application(req: ApplicationCreate):
+async def prepare_application(req: ApplicationCreate, user: Optional[dict] = Depends(get_current_user_optional)):
+    if user:
+        req.user_id = str(user["_id"])
     return await application_service.prepare_application(req)
 
 @router.post("/apply", response_model=ApplicationResponse)
-async def apply_to_job(req: ApplicationCreate):
+async def apply_to_job(req: ApplicationCreate, user: Optional[dict] = Depends(get_current_user_optional)):
+    if user:
+        req.user_id = str(user["_id"])
     req.mode = "APPLY"
     return await application_service.prepare_application(req)
 
 @router.post("/queue")
-async def queue_application(req: QueueApplicationRequest):
+async def queue_application(req: QueueApplicationRequest, user: Optional[dict] = Depends(get_current_user_optional)):
     """Queues a job for automated background application execution."""
+    uid = str(user["_id"]) if user else (req.user_id or "default")
     try:
         return await application_queue_manager.enqueue_job(
             job_id=req.job_id,
             resume_id=req.resume_id,
-            user_id=req.user_id or "default",
+            user_id=uid,
             mode=req.mode or "APPLY"
         )
     except ValueError as ve:
@@ -46,11 +51,12 @@ async def queue_application(req: QueueApplicationRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/queue/batch")
-async def queue_batch_applications(req: QueueBatchRequest):
+async def queue_batch_applications(req: QueueBatchRequest, user: Optional[dict] = Depends(get_current_user_optional)):
     """Batch queues multiple jobs for automated sequential execution."""
+    uid = str(user["_id"]) if user else (req.user_id or "default")
     return await application_queue_manager.enqueue_jobs(
         job_ids=req.job_ids,
-        user_id=req.user_id or "default",
+        user_id=uid,
         mode=req.mode or "APPLY"
     )
 

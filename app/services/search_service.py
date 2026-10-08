@@ -30,46 +30,84 @@ class SearchService:
     def jobs_col(self):
         return get_database().jobs
 
-    async def create_profile(self, profile: SearchProfileCreate) -> SearchProfileResponse:
+    async def create_profile(self, profile: SearchProfileCreate, user_id: Optional[Any] = "default") -> SearchProfileResponse:
         doc = profile.model_dump()
         now = datetime.now(timezone.utc)
         doc["created_at"] = now
         doc["updated_at"] = now
+        if user_id:
+            doc["user_id"] = str(user_id)
         res = await self.profiles_col.insert_one(doc)
         doc["_id"] = res.inserted_id
         return format_profile_doc(doc)
 
-    async def get_profiles(self) -> List[SearchProfileResponse]:
-        cursor = self.profiles_col.find({}).sort("created_at", -1)
+    async def get_profiles(self, user_id: Optional[Any] = None) -> List[SearchProfileResponse]:
+        query = {}
+        if user_id:
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            query["$or"] = [
+                {"user_id": {"$in": u_oids + [str(user_id)]}},
+                {"user_id": {"$exists": False}},
+                {"user_id": None},
+                {"user_id": "default"}
+            ]
+        cursor = self.profiles_col.find(query).sort("created_at", -1)
         profiles = []
         async for doc in cursor:
             profiles.append(format_profile_doc(doc))
         return profiles
 
-    async def get_profile_by_id(self, profile_id: str) -> Optional[SearchProfileResponse]:
+    async def get_profile_by_id(self, profile_id: str, user_id: Optional[Any] = None) -> Optional[SearchProfileResponse]:
         if not ObjectId.is_valid(profile_id):
             return None
-        doc = await self.profiles_col.find_one({"_id": ObjectId(profile_id)})
+        query: Dict[str, Any] = {"_id": ObjectId(profile_id)}
+        if user_id:
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            query["$or"] = [
+                {"user_id": {"$in": u_oids + [str(user_id)]}},
+                {"user_id": {"$exists": False}},
+                {"user_id": None},
+                {"user_id": "default"}
+            ]
+        doc = await self.profiles_col.find_one(query)
         return format_profile_doc(doc) if doc else None
 
-    async def update_profile(self, profile_id: str, update: SearchProfileUpdate) -> Optional[SearchProfileResponse]:
+    async def update_profile(self, profile_id: str, update: SearchProfileUpdate, user_id: Optional[Any] = None) -> Optional[SearchProfileResponse]:
         if not ObjectId.is_valid(profile_id):
             return None
+        query: Dict[str, Any] = {"_id": ObjectId(profile_id)}
+        if user_id:
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            query["$or"] = [
+                {"user_id": {"$in": u_oids + [str(user_id)]}},
+                {"user_id": {"$exists": False}},
+                {"user_id": None},
+                {"user_id": "default"}
+            ]
         data = update.model_dump(exclude_unset=True)
         if not data:
-            return await self.get_profile_by_id(profile_id)
+            return await self.get_profile_by_id(profile_id, user_id=user_id)
         data["updated_at"] = datetime.now(timezone.utc)
         res = await self.profiles_col.find_one_and_update(
-            {"_id": ObjectId(profile_id)},
+            query,
             {"$set": data},
             return_document=True
         )
         return format_profile_doc(res) if res else None
 
-    async def delete_profile(self, profile_id: str) -> bool:
+    async def delete_profile(self, profile_id: str, user_id: Optional[Any] = None) -> bool:
         if not ObjectId.is_valid(profile_id):
             return False
-        res = await self.profiles_col.delete_one({"_id": ObjectId(profile_id)})
+        query: Dict[str, Any] = {"_id": ObjectId(profile_id)}
+        if user_id:
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            query["$or"] = [
+                {"user_id": {"$in": u_oids + [str(user_id)]}},
+                {"user_id": {"$exists": False}},
+                {"user_id": None},
+                {"user_id": "default"}
+            ]
+        res = await self.profiles_col.delete_one(query)
         return res.deleted_count > 0
 
     async def run_search(

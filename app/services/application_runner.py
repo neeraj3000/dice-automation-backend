@@ -245,7 +245,8 @@ class ApplicationRunner:
                     "failure_reason": "No resume available in database."
                 }
 
-        user_profile = await settings_service.get_profile()
+        target_uid = user_id or str(app_doc.get("user_id") or "default")
+        user_profile = await settings_service.get_profile(user_id=target_uid)
 
         attempt = 0
         retry_count = 0

@@ -1,3 +1,5 @@
+from datetime import timezone
+from datetime import datetime
 import asyncio
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, Body
@@ -10,74 +12,36 @@ router = APIRouter(tags=["Settings & Profile"])
 
 @router.get("/profile", response_model=UserProfileSchema)
 async def get_user_profile(user: Optional[dict] = Depends(get_current_user_optional)):
-    db = get_database()
-    if user and db is not None:
-        uid = user["_id"]
-        user_sett = await db.settings.find_one({"user_id": {"$in": [uid, str(uid)]}})
-        if user_sett and user_sett.get("profile"):
-            p_data = dict(user_sett["profile"])
-            return UserProfileSchema(**{**UserProfileSchema().model_dump(), **p_data})
+    uid = str(user["_id"]) if user else "default"
+    prof = await settings_service.get_profile(user_id=uid)
+    if user and not prof.email:
+        prof.email = user.get("email", "")
+    if user and not prof.first_name and not prof.last_name:
         name_parts = (user.get("name") or "").split()
-        return UserProfileSchema(
-            first_name=name_parts[0] if name_parts else "",
-            last_name=" ".join(name_parts[1:]) if len(name_parts) > 1 else "",
-            email=user.get("email", "")
-        )
-    return await settings_service.get_profile()
+        if name_parts:
+            prof.first_name = name_parts[0]
+            prof.last_name = " ".join(name_parts[1:])
+    return prof
 
 @router.put("/profile", response_model=UserProfileSchema)
 async def update_user_profile(profile: UserProfileSchema, user: Optional[dict] = Depends(get_current_user_optional)):
-    db = get_database()
-    if user and db is not None:
-        from datetime import datetime, timezone
-        uid = user["_id"]
-        await db.settings.update_one(
-            {"user_id": uid},
-            {"$set": {
-                "user_id": uid,
-                "profile": profile.model_dump(),
-                "updated_at": datetime.now(timezone.utc)
-            }},
-            upsert=True
-        )
-        return profile
-    return await settings_service.update_profile(profile)
+    uid = str(user["_id"]) if user else "default"
+    return await settings_service.update_profile(profile, user_id=uid)
 
 @router.get("/settings")
 async def get_app_settings(user: Optional[dict] = Depends(get_current_user_optional)):
     app_cfg = await settings_service.get_settings()
-    db = get_database()
-    profile_dict = {}
+    uid = str(user["_id"]) if user else "default"
+    prof = await settings_service.get_profile(user_id=uid)
+    if user and not prof.email:
+        prof.email = user.get("email", "")
+    if user and not prof.first_name and not prof.last_name:
+        name_parts = (user.get("name") or "").split()
+        if name_parts:
+            prof.first_name = name_parts[0]
+            prof.last_name = " ".join(name_parts[1:])
 
-    if user and db is not None:
-        uid = user["_id"]
-        user_sett = await db.settings.find_one({"user_id": {"$in": [uid, str(uid)]}})
-        if user_sett and user_sett.get("profile"):
-            profile_dict = dict(user_sett["profile"])
-
-    if not profile_dict:
-        if user:
-            name_parts = (user.get("name") or "").split()
-            profile_dict = {
-                "first_name": name_parts[0] if name_parts else "",
-                "last_name": " ".join(name_parts[1:]) if len(name_parts) > 1 else "",
-                "email": user.get("email", ""),
-                "phone": user.get("phone", ""),
-                "city": "",
-                "state": "",
-                "zip_code": "",
-                "linkedin_url": "",
-                "github_url": "",
-                "portfolio_url": "",
-                "years_of_experience": "",
-                "work_authorization": "US Citizen",
-                "willing_to_relocate": False,
-                "custom_answers": {}
-            }
-        else:
-            profile = await settings_service.get_profile()
-            profile_dict = profile.model_dump()
-
+    profile_dict = prof.model_dump()
     profile_dict["linkedin"] = profile_dict.get("linkedin_url", "")
     profile_dict["github"] = profile_dict.get("github_url", "")
     profile_dict["portfolio"] = profile_dict.get("portfolio_url", "")
@@ -95,19 +59,7 @@ async def get_app_settings(user: Optional[dict] = Depends(get_current_user_optio
 
 @router.put("/settings")
 async def update_app_settings(body: Dict[str, Any] = Body(...), user: Optional[dict] = Depends(get_current_user_optional)):
-    db = get_database()
-    if user and db is not None:
-        uid = user["_id"]
-        await db.settings.update_one(
-            {"user_id": uid},
-            {"$set": {
-                "user_id": uid,
-                "profile": body.get("profile", {}),
-                "headless": bool(body.get("headless", False)),
-                "updated_at": datetime.now(timezone.utc)
-            }},
-            upsert=True
-        )
+    uid = str(user["_id"]) if user else "default"
 
     if "profile" in body and isinstance(body["profile"], dict):
         p_raw = dict(body["profile"])
@@ -120,7 +72,7 @@ async def update_app_settings(body: Dict[str, Any] = Body(...), user: Optional[d
             p_raw["work_authorization"] = "US Citizen" if p_raw["authorized_to_work"] else "Requires Sponsorship"
 
         prof = UserProfileSchema(**p_raw)
-        await settings_service.update_profile(prof)
+        await settings_service.update_profile(prof, user_id=uid)
 
     if "headless" in body:
         body["headless_browser"] = bool(body["headless"])

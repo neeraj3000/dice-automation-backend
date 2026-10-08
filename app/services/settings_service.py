@@ -159,10 +159,6 @@ class SettingsService:
     def SESSION_FILE(self) -> Path:
         return settings.DATA_DIR / "dice_session.json"
 
-    @property
-    def PROFILE_FILE(self) -> Path:
-        return settings.DATA_DIR / "user_profile.json"
-
     def get_local_session(self) -> Dict[str, Any]:
         """Reads local session state from disk. Never queries MongoDB."""
         if self.SESSION_FILE.exists():
@@ -196,23 +192,12 @@ class SettingsService:
         return (sess.get("email") or "").strip()
 
     def get_local_profile_data(self) -> Optional[Dict[str, Any]]:
-        """Reads machine-local user profile from disk."""
-        if self.PROFILE_FILE.exists():
-            try:
-                with open(self.PROFILE_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning(f"Error reading local user_profile.json: {e}")
+        """Deprecated: Profiles are now stored exclusively in MongoDB."""
         return None
 
     def save_local_profile_data(self, profile_data: Dict[str, Any]):
-        """Persists machine-local user profile to disk."""
-        try:
-            self.PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.PROFILE_FILE, "w", encoding="utf-8") as f:
-                json.dump(profile_data, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving local user_profile.json: {e}")
+        """Deprecated: Profiles are now stored exclusively in MongoDB."""
+        pass
 
     @property
     def MACHINE_ID_FILE(self) -> Path:
@@ -236,61 +221,98 @@ class SettingsService:
             logger.debug(f"Could not persist machine_id: {e}")
         return mid
 
-    async def get_profile(self) -> UserProfileSchema:
+    async def get_profile(self, user_id: Optional[Any] = None) -> UserProfileSchema:
         """
-        Retrieves user profile prioritizing local machine storage.
-        If backed up to MongoDB, uses machine-specific partitioning so laptops never cross-contaminate.
-        Automatically synchronizes email and name with the active authenticated local Dice session.
+        Retrieves user profile exclusively from MongoDB.
+        Prioritizes the specified user_id in db.settings. If not specified or not found,
+        falls back to 'default', then the latest settings document in MongoDB,
+        then legacy db.user_profile if present.
         """
-        local_data = self.get_local_profile_data()
-        if not local_data and self.db is not None:
+        if self.db is None:
+            return UserProfileSchema()
+
+        doc = None
+        from bson import ObjectId
+        if user_id and user_id != "default":
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
             try:
-                mid = self.get_machine_id()
-                # Query strictly for this machine's profile document
-                doc = await self.db.user_profile.find_one({"machine_id": mid})
-                if doc:
-                    doc.pop("_id", None)
-                    doc.pop("machine_id", None)
-                    local_data = doc
+                doc = await self.db.settings.find_one({"user_id": {"$in": u_oids + [str(user_id)]}})
             except Exception as e:
-                logger.debug(f"Could not read profile from MongoDB: {e}")
+                logger.debug(f"Could not load settings for user {user_id}: {e}")
 
-        if not local_data:
-            local_data = {}
-
-        # Align email and candidate name with active authenticated local Dice session
-        sess_email = self.get_active_session_email()
-        if sess_email:
-            if not local_data.get("email") or local_data.get("email") != sess_email:
-                local_data["email"] = sess_email
-                self.save_local_profile_data(local_data)
-
-        local_sess = self.get_local_session()
-        if local_sess.get("first_name") and not local_data.get("first_name"):
-            local_data["first_name"] = local_sess["first_name"]
-            self.save_local_profile_data(local_data)
-        if local_sess.get("last_name") and not local_data.get("last_name"):
-            local_data["last_name"] = local_sess["last_name"]
-            self.save_local_profile_data(local_data)
-
-        return UserProfileSchema(**local_data)
-
-    async def update_profile(self, profile: UserProfileSchema) -> UserProfileSchema:
-        data = profile.model_dump()
-        data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        # Save locally so each machine preserves its own candidate profile
-        self.save_local_profile_data(data)
-        if self.db is not None:
+        # If user_id is default or specific user had no doc, check default or latest doc
+        if not doc or not doc.get("profile"):
             try:
-                mid = self.get_machine_id()
-                # Partition by machine_id in MongoDB
-                await self.db.user_profile.update_one(
-                    {"machine_id": mid},
-                    {"$set": {**data, "machine_id": mid}},
-                    upsert=True
+                doc = await self.db.settings.find_one({"user_id": "default"})
+            except Exception:
+                pass
+
+        if not doc or not doc.get("profile"):
+            try:
+                doc = await self.db.settings.find_one(
+                    {"profile": {"$exists": True, "$ne": {}}},
+                    sort=[("updated_at", -1)]
                 )
-            except Exception as e:
-                logger.debug(f"Could not backup profile to MongoDB: {e}")
+            except Exception:
+                pass
+
+        if not doc or not doc.get("profile"):
+            try:
+                old_doc = await self.db.user_profile.find_one({}, sort=[("updated_at", -1)])
+                if old_doc:
+                    old_doc.pop("_id", None)
+                    old_doc.pop("machine_id", None)
+                    return UserProfileSchema(**old_doc)
+            except Exception:
+                pass
+            return UserProfileSchema()
+
+        p_data = dict(doc.get("profile", {}))
+        # Normalize fields for compatibility
+        if "linkedin" in p_data and not p_data.get("linkedin_url"):
+            p_data["linkedin_url"] = p_data["linkedin"]
+        if "github" in p_data and not p_data.get("github_url"):
+            p_data["github_url"] = p_data["github"]
+        if "portfolio" in p_data and not p_data.get("portfolio_url"):
+            p_data["portfolio_url"] = p_data["portfolio"]
+        if "years_experience" in p_data and not p_data.get("years_of_experience"):
+            p_data["years_of_experience"] = str(p_data["years_experience"])
+
+        return UserProfileSchema(**{**UserProfileSchema().model_dump(), **p_data})
+
+    async def update_profile(self, profile: UserProfileSchema, user_id: Optional[Any] = "default") -> UserProfileSchema:
+        """
+        Persists user profile exclusively to MongoDB in the settings collection.
+        """
+        if self.db is None:
+            return profile
+
+        data = profile.model_dump()
+        from bson import ObjectId
+        from datetime import datetime, timezone
+
+        target_id = user_id or "default"
+        if target_id != "default" and ObjectId.is_valid(target_id):
+            query = {"user_id": {"$in": [ObjectId(target_id), str(target_id)]}}
+            target_user_id = ObjectId(target_id)
+        else:
+            query = {"user_id": target_id}
+            target_user_id = target_id
+
+        now = datetime.now(timezone.utc)
+        try:
+            await self.db.settings.update_one(
+                query,
+                {"$set": {
+                    "user_id": target_user_id,
+                    "profile": data,
+                    "updated_at": now
+                }},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error persisting profile to MongoDB settings: {e}")
+
         return profile
 
     async def get_settings(self) -> AppSettingsSchema:
@@ -534,13 +556,13 @@ class SettingsService:
                 "last_verified": local_session.get("last_verified") or datetime.now(timezone.utc).isoformat()
             }
 
-        # Rate-limit guard: if already verified live within the last 15 seconds, return cached status
+        # Rate-limit guard: if already verified live within the last 15 minutes, return cached status
         now_utc = datetime.now(timezone.utc)
         last_verified_str = local_session.get("last_verified")
         if local_session.get("is_connected") and last_verified_str:
             try:
                 last_dt = datetime.fromisoformat(last_verified_str)
-                if (now_utc - last_dt).total_seconds() < 15:
+                if (now_utc - last_dt).total_seconds() < 900:
                     username = local_session.get("username", "")
                     if self._is_hardcoded_name(username):
                         username = await self._resolve_generic_username()
@@ -979,15 +1001,19 @@ class SettingsService:
             logger.debug(f"Notice saving session to session_store: {store_err}")
 
 
-        # Update local user profile email and name to match this authenticated candidate
-        if is_connected and extracted_email:
-            local_prof = self.get_local_profile_data() or {}
-            local_prof["email"] = extracted_email
-            if extracted_first and not local_prof.get("first_name"):
-                local_prof["first_name"] = extracted_first
-            if extracted_last and not local_prof.get("last_name"):
-                local_prof["last_name"] = extracted_last
-            self.save_local_profile_data(local_prof)
+        # Update candidate user profile email and name in MongoDB settings
+        if is_connected and extracted_email and self.db is not None:
+            try:
+                prof = await self.get_profile(target_uid)
+                prof_dict = prof.model_dump()
+                prof_dict["email"] = extracted_email
+                if extracted_first and not prof_dict.get("first_name"):
+                    prof_dict["first_name"] = extracted_first
+                if extracted_last and not prof_dict.get("last_name"):
+                    prof_dict["last_name"] = extracted_last
+                await self.update_profile(UserProfileSchema(**prof_dict), user_id=target_uid)
+            except Exception as pe:
+                logger.debug(f"Notice updating profile in MongoDB on session import: {pe}")
 
         # Proactively purge any legacy cookies from shared MongoDB app_settings
         if self.db is not None:

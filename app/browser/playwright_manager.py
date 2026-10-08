@@ -318,6 +318,14 @@ class PlaywrightManager:
                 target_headless = headless
             else:
                 target_headless = self.headless
+                if os.environ.get("HEADLESS") is None and os.environ.get("HEADLESS_BROWSER") is None and settings.HEADLESS is None and settings.HEADLESS_BROWSER is None and self.browser_mode != "server":
+                    try:
+                        from app.services.settings_service import settings_service
+                        app_cfg = await settings_service.get_settings()
+                        if getattr(app_cfg, "headless_browser", None) is not None:
+                            target_headless = bool(app_cfg.headless_browser)
+                    except Exception:
+                        pass
 
             # 2. Check if existing context can be reused
             existing_ctx = self._contexts.get(profile_id)

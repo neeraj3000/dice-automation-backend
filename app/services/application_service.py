@@ -147,8 +147,10 @@ class ApplicationService:
         now = datetime.now(timezone.utc)
         # Create or update Application doc
         existing_app = await self.apps_col.find_one({"job_id": ObjectId(req.job_id)})
+        target_uid = str(getattr(req, "user_id", None) or "default")
         app_data = {
             "job_id": ObjectId(req.job_id),
+            "user_id": target_uid,
             "resume_id": ObjectId(resume_id),
             "company": job.get("company", "Company"),
             "job_title": job.get("title", "Job Title"),
@@ -202,7 +204,7 @@ class ApplicationService:
             return format_app_doc(saved_app, [])
 
         # Run Browser automation
-        user_profile = await settings_service.get_profile()
+        user_profile = await settings_service.get_profile(user_id=target_uid)
         browser_res = await application_browser.prepare_application(
             application_url=app_data["application_url"],
             resume_file_path=resume.get("file_path", resume.get("file_name")),
@@ -339,7 +341,8 @@ class ApplicationService:
             updated = await self.apps_col.find_one({"_id": ObjectId(app_id)})
             return format_app_doc(updated, [])
 
-        user_profile = await settings_service.get_profile()
+        target_uid = str(app_doc.get("user_id") or "default")
+        user_profile = await settings_service.get_profile(user_id=target_uid)
         now = datetime.now(timezone.utc)
         steps = app_doc.get("progress_steps", [])
         steps.append(f"Submitting application to Dice at {now.strftime('%H:%M:%S')}...")

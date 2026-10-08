@@ -47,28 +47,7 @@ async def get_dice_session_status(
             expires_at=None
         )
 
-    # If check_live is requested, verify via Playwright browser context
-    if check_live:
-        from app.browser.playwright_manager import playwright_manager
-        try:
-            context = await playwright_manager.get_context(profile_id=user_id, restore_session=False)
-            res = await verify_dice_session(context, session=session, user_id=user_id)
-            return DiceSessionStatusResponse(
-                connected=res["connected"],
-                status=res["status"],
-                last_verified_at=res.get("last_verified_at"),
-                expires_at=res.get("expires_at")
-            )
-        except Exception as e:
-            logger.error(f"Live verification failed with browser error: {e}")
-            return DiceSessionStatusResponse(
-                connected=False,
-                status=SessionState.BROWSER_ERROR,
-                last_verified_at=session.last_verified_at.isoformat() if session.last_verified_at else None,
-                expires_at=session.expires_at.isoformat() if session.expires_at else None
-            )
-
-    # Fast path: check expiration & stored status
+    # 1. Fast checks: Expiration & required auth tokens
     if _is_expired(session.expires_at):
         return DiceSessionStatusResponse(
             connected=False,
@@ -85,7 +64,33 @@ async def get_dice_session_status(
             expires_at=session.expires_at.isoformat() if session.expires_at else None
         )
 
-    is_conn = bool(session.is_connected and session.status == SessionState.CONNECTED)
+    # 2. Live verification check (performed at most ONCE, zero browser launch)
+    # If check_live is requested and session hasn't been verified yet (or cache expired),
+    # verify via lightweight HTTP and cache the timestamp.
+    if check_live:
+        now_utc = datetime.now(timezone.utc)
+        already_verified = False
+        if session.last_verified_at:
+            last_ver = session.last_verified_at
+            if last_ver.tzinfo is None:
+                last_ver = last_ver.replace(tzinfo=timezone.utc)
+            # Ensure live check is performed only once per 15-minute cache window
+            if (now_utc - last_ver).total_seconds() < 900:
+                already_verified = True
+
+        if not already_verified:
+            try:
+                from app.services.settings_service import settings_service
+                verify_res = await settings_service._verify_cookies_via_http(session.cookies or [])
+                is_connected = bool(verify_res.get("is_connected", False))
+                session.is_connected = is_connected
+                session.status = SessionState.CONNECTED if is_connected else SessionState.SESSION_EXPIRED
+                session.last_verified_at = now_utc
+                await store.save_session(user_id, session)
+            except Exception as e:
+                logger.warning(f"Lightweight HTTP session verification notice: {e}")
+
+    is_conn = bool(session.is_connected and session.status in (SessionState.CONNECTED, "valid"))
     status_str = "valid" if is_conn else (session.status or SessionState.LOGIN_REQUIRED)
 
     return DiceSessionStatusResponse(
