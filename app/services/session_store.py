@@ -375,3 +375,5 @@ def get_session_store(store_type: Optional[str] = None) -> SessionStore:
             return PersistentSessionStore()
 
     return LocalSessionStore()
+
+session_store = get_session_store()

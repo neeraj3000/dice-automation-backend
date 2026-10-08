@@ -21,7 +21,7 @@ if sys.platform == "win32":
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import connect_db, close_db, get_database
-from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session
+from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards
 
 
 @asynccontextmanager
@@ -149,6 +149,10 @@ app.include_router(applications.router)
 app.include_router(review.router)
 app.include_router(settings_api.router)
 app.include_router(dice_session.router)
+app.include_router(auth.router, prefix="/api")
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(boards.router, prefix="/api")
+app.include_router(boards.router, prefix="/api/v1")
 
 # Also support /api prefix for backwards compatibility
 app.include_router(resumes.router, prefix="/api", include_in_schema=False)

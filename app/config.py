@@ -28,6 +28,67 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_MB: int = 20
     ALLOWED_EXTENSIONS: list[str] = [".pdf", ".docx"]
 
+    # Authentication & JWT (from bench-sales-backend)
+    JWT_SECRET: str = "dice-auto-apply-default-jwt-secret-key-32bytes-min"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_MINUTES: int = 60
+    REFRESH_TOKEN_DAYS: int = 14
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+
+    # Cloudinary Cloud Storage (from bench-sales-backend)
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+    TEMP_RESUMES_DIR: Path = Path(__file__).resolve().parent.parent / "temp_resumes"
+
+    # Backward-compatible property accessors for lowercase names
+    @property
+    def jwt_secret(self) -> str:
+        return self.JWT_SECRET
+
+    @property
+    def jwt_algorithm(self) -> str:
+        return self.JWT_ALGORITHM
+
+    @property
+    def access_token_minutes(self) -> int:
+        return self.ACCESS_TOKEN_MINUTES
+
+    @property
+    def refresh_token_days(self) -> int:
+        return self.REFRESH_TOKEN_DAYS
+
+    @property
+    def cookie_secure(self) -> bool:
+        return self.COOKIE_SECURE
+
+    @property
+    def cookie_samesite(self) -> str:
+        return self.COOKIE_SAMESITE
+
+    @property
+    def google_client_id(self) -> str:
+        return self.GOOGLE_CLIENT_ID
+
+    @property
+    def cloudinary_cloud_name(self) -> str:
+        return self.CLOUDINARY_CLOUD_NAME
+
+    @property
+    def cloudinary_api_key(self) -> str:
+        return self.CLOUDINARY_API_KEY
+
+    @property
+    def cloudinary_api_secret(self) -> str:
+        return self.CLOUDINARY_API_SECRET
+
+    @property
+    def temp_resumes_dir(self) -> Path:
+        return self.TEMP_RESUMES_DIR
+
 
 settings = Settings()
 
@@ -43,4 +104,5 @@ if os.environ.get("RENDER") and "BROWSER_MODE" not in os.environ:
 settings.RESUMES_DIR.mkdir(parents=True, exist_ok=True)
 settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
 settings.BROWSER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+settings.TEMP_RESUMES_DIR.mkdir(parents=True, exist_ok=True)
 

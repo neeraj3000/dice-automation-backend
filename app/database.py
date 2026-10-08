@@ -38,6 +38,20 @@ async def connect_db():
     apps_col = db_instance.db.applications
     await apps_col.create_index([("status", 1)])
 
+    # Multi-tenant Auth indexes
+    users_col = db_instance.db.users
+    await users_col.create_index([("email", 1)], unique=True)
+
+    refresh_col = db_instance.db.refresh_tokens
+    await refresh_col.create_index([("jti_hash", 1)], unique=True)
+    await refresh_col.create_index([("user_id", 1)])
+    await refresh_col.create_index([("expires_at", 1)], expireAfterSeconds=0)
+
 async def close_db():
     if db_instance.client:
         db_instance.client.close()
+
+def utcnow():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc)
+

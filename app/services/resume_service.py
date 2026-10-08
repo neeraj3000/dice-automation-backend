@@ -69,11 +69,22 @@ class ResumeService:
         metadata = await llm_service.parse_resume_metadata(raw_text, target_name)
         now = datetime.now(timezone.utc)
 
+        # Upload to Cloudinary if configured
+        cloudinary_info = {}
+        try:
+            from app.services.cloudinary_service import is_cloudinary_configured, upload_resume
+            if is_cloudinary_configured():
+                cloudinary_info = await upload_resume(content, file_name=target_name)
+        except Exception:
+            pass
+
         doc = {
             "file_name": target_name,
             "file_type": ext.replace(".", ""),
             "file_size": file_size,
             "file_path": str(target_path.relative_to(settings.RESUMES_DIR.parent)),
+            "cloudinary_url": cloudinary_info.get("cloudinary_url"),
+            "cloudinary_public_id": cloudinary_info.get("cloudinary_public_id"),
             "display_name": metadata.display_name or base_name.replace("_", " "),
             "target_role": metadata.target_role,
             "skills": metadata.skills,
@@ -222,6 +233,14 @@ class ResumeService:
                     os.remove(full_path)
         except Exception:
             pass
+
+        # Remove from Cloudinary if hosted remotely
+        if doc.get("cloudinary_public_id"):
+            try:
+                from app.services.cloudinary_service import delete_resume
+                await delete_resume(doc["cloudinary_public_id"])
+            except Exception:
+                pass
 
         # Gracefully handle application references
         try:

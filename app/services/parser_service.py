@@ -1,4 +1,4 @@
-﻿import re
+import re
 from pathlib import Path
 from typing import Dict, List, Any
 
@@ -71,6 +71,18 @@ def extract_heuristic_metadata(text: str, file_name: str) -> Dict[str, Any]:
         pattern = r"(?<!\w)" + re.escape(skill) + r"(?!\w)"
         if re.search(pattern, text, re.IGNORECASE):
             detected_skills.append(skill)
+
+    # Enrich with curated skills vocabulary from bench-sales-backend
+    try:
+        from app.services.skills_vocab import find_skills
+        vocab_skills = find_skills(text)
+        existing_lower = {s.lower() for s in detected_skills}
+        for vs in vocab_skills:
+            if vs.lower() not in existing_lower:
+                detected_skills.append(vs.title() if len(vs) > 3 and not vs.isupper() else vs)
+                existing_lower.add(vs.lower())
+    except Exception:
+        pass
             
     # 3. Detect experience
     detected_exp = "3+ years"
