@@ -123,7 +123,7 @@ class SearchService:
         if not profile:
             raise HTTPException(status_code=404, detail="Search profile not found")
 
-        app_settings = await settings_service.get_settings()
+        app_settings = await settings_service.get_settings(user_id=user_id)
         max_jobs = app_settings.max_jobs_per_search or 15
 
         easy_apply_only = profile.get("easy_apply_only")

@@ -315,41 +315,110 @@ class SettingsService:
 
         return profile
 
-    async def get_settings(self) -> AppSettingsSchema:
+    async def get_settings(self, user_id: Optional[Any] = None) -> AppSettingsSchema:
+        """
+        Retrieves application settings strictly for the specified user from MongoDB (db.settings).
+        Falls back to 'default', then the most recently updated document if the user document does not exist.
+        """
         doc = {}
+        from bson import ObjectId
+        target_uid = str(user_id) if user_id else "default"
+
         if self.db is not None:
             try:
-                doc = await self.db.app_settings.find_one({}) or {}
+                if user_id and user_id != "default":
+                    u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+                    doc = await self.db.settings.find_one({"user_id": {"$in": u_oids + [str(user_id)]}}) or {}
+                if not doc:
+                    doc = await self.db.settings.find_one({"user_id": "default"}) or {}
+                if not doc:
+                    doc = await self.db.settings.find_one(
+                        {"$or": [{"max_jobs_per_search": {"$exists": True}}, {"headless": {"$exists": True}}, {"profile": {"$exists": True}}]},
+                        sort=[("updated_at", -1)]
+                    ) or {}
+                if not doc:
+                    doc = await self.db.app_settings.find_one({}) or {}
             except Exception as e:
-                logger.debug(f"Could not load settings from MongoDB: {e}")
-        doc.pop("_id", None)
-        doc.pop("openai_api_key", None)
-        doc.pop("openai_model", None)
-        doc.pop("saved_cookies", None)
+                logger.debug(f"Could not load settings from MongoDB for user {user_id}: {e}")
 
-        # Attach host-local session status dynamically
-        local_sess = self.get_local_session()
-        doc["dice_session_connected"] = bool(local_sess.get("is_connected", False))
-        doc["dice_username"] = local_sess.get("username", "")
-        doc["dice_last_verified"] = local_sess.get("last_verified")
+        # Resolve fields
+        headless_val = doc.get("headless_browser")
+        if headless_val is None:
+            headless_val = doc.get("headless", False)
 
-        return AppSettingsSchema(**doc)
+        settings_dict = {
+            "max_jobs_per_search": doc.get("max_jobs_per_search", 25),
+            "max_applications_per_run": doc.get("max_applications_per_run", 10),
+            "default_mode": doc.get("default_mode", "PREPARE"),
+            "headless_browser": bool(headless_val),
+        }
 
-    async def update_settings(self, app_settings: AppSettingsSchema) -> AppSettingsSchema:
+        # Resolve user-specific Dice session status
+        is_connected = False
+        username = ""
+        last_verified = None
+
+        try:
+            from app.services.session_store import get_session_store
+            store = get_session_store()
+            sess_status = await store.get_session_status(target_uid)
+            if sess_status.get("is_connected"):
+                is_connected = True
+                username = sess_status.get("username", "") or sess_status.get("email", "")
+                last_verified = sess_status.get("last_verified_at")
+        except Exception:
+            pass
+
+        if not is_connected and target_uid == "default":
+            local_sess = self.get_local_session()
+            if local_sess.get("is_connected"):
+                is_connected = True
+                username = local_sess.get("username", "") or local_sess.get("email", "")
+                last_verified = local_sess.get("last_verified")
+
+        settings_dict["dice_session_connected"] = is_connected
+        settings_dict["dice_username"] = username
+        settings_dict["dice_last_verified"] = last_verified
+
+        return AppSettingsSchema(**settings_dict)
+
+    async def update_settings(self, app_settings: AppSettingsSchema, user_id: Optional[Any] = "default") -> AppSettingsSchema:
+        """
+        Persists application settings strictly partitioned by user_id in MongoDB (db.settings).
+        """
         data = app_settings.model_dump()
         data.pop("openai_api_key", None)
         data.pop("openai_model", None)
-        # Never store cookies or host-specific session state in MongoDB
         data.pop("saved_cookies", None)
         data.pop("dice_session_connected", None)
         data.pop("dice_username", None)
         data.pop("dice_last_verified", None)
-        data["updated_at"] = datetime.now(timezone.utc)
+
+        from bson import ObjectId
+        from datetime import datetime, timezone
+        target_id = user_id or "default"
+        if target_id != "default" and ObjectId.is_valid(target_id):
+            query = {"user_id": {"$in": [ObjectId(target_id), str(target_id)]}}
+            target_user_id = ObjectId(target_id)
+        else:
+            query = {"user_id": target_id}
+            target_user_id = target_id
+
+        update_fields = {
+            "user_id": target_user_id,
+            "max_jobs_per_search": data.get("max_jobs_per_search", 25),
+            "max_applications_per_run": data.get("max_applications_per_run", 10),
+            "default_mode": data.get("default_mode", "PREPARE"),
+            "headless_browser": bool(data.get("headless_browser", False)),
+            "headless": bool(data.get("headless_browser", False)),
+            "updated_at": datetime.now(timezone.utc)
+        }
+
         if self.db is not None:
-            await self.db.app_settings.update_one(
-                {},
+            await self.db.settings.update_one(
+                query,
                 {
-                    "$set": data,
+                    "$set": update_fields,
                     "$unset": {
                         "openai_api_key": "",
                         "openai_model": "",

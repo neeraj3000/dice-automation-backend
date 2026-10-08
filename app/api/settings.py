@@ -30,8 +30,8 @@ async def update_user_profile(profile: UserProfileSchema, user: Optional[dict] =
 
 @router.get("/settings")
 async def get_app_settings(user: Optional[dict] = Depends(get_current_user_optional)):
-    app_cfg = await settings_service.get_settings()
     uid = str(user["_id"]) if user else "default"
+    app_cfg = await settings_service.get_settings(user_id=uid)
     prof = await settings_service.get_profile(user_id=uid)
     if user and not prof.email:
         prof.email = user.get("email", "")
@@ -78,13 +78,13 @@ async def update_app_settings(body: Dict[str, Any] = Body(...), user: Optional[d
         body["headless_browser"] = bool(body["headless"])
 
     cfg_data = {k: v for k, v in body.items() if k not in ["profile", "headless"]}
-    current_cfg = await settings_service.get_settings()
+    current_cfg = await settings_service.get_settings(user_id=uid)
     merged = current_cfg.model_dump()
     merged.update(cfg_data)
     if "headless_browser" in body:
         merged["headless_browser"] = body["headless_browser"]
 
-    await settings_service.update_settings(AppSettingsSchema(**merged))
+    await settings_service.update_settings(AppSettingsSchema(**merged), user_id=uid)
     return await get_app_settings(user)
 
 
