@@ -17,6 +17,17 @@ def format_resume_doc(doc: Dict[str, Any]) -> ResumeResponse:
         return None
     data = dict(doc)
     data["id"] = str(data.pop("_id"))
+    if "user_id" in data and data["user_id"] is not None:
+        data["user_id"] = str(data["user_id"])
+    if not data.get("display_name"):
+        base = Path(data.get("file_name", "Resume")).stem.replace("_", " ")
+        data["display_name"] = base or data.get("target_role", "Resume")
+    if not data.get("file_type") and data.get("file_name"):
+        data["file_type"] = Path(data["file_name"]).suffix.replace(".", "") or "pdf"
+    if not data.get("created_at"):
+        data["created_at"] = datetime.now(timezone.utc)
+    if not data.get("updated_at"):
+        data["updated_at"] = data.get("created_at") or datetime.now(timezone.utc)
     return ResumeResponse(**data)
 
 class ResumeService:

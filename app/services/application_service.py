@@ -15,16 +15,50 @@ from app.browser.application_browser import application_browser
 def format_app_doc(doc: Dict[str, Any], questions: List[Dict[str, Any]] = None) -> ApplicationResponse:
     data = dict(doc)
     data["id"] = str(data.pop("_id"))
-    data["job_id"] = str(data["job_id"])
-    data["resume_id"] = str(data["resume_id"])
-    
+    data["job_id"] = str(data.get("job_id", ""))
+    data["resume_id"] = str(data.get("resume_id", "")) if data.get("resume_id") else ""
+    if "user_id" in data and data["user_id"] is not None:
+        data["user_id"] = str(data["user_id"])
+
+    # Harmonize application_url and job_url
+    if not data.get("application_url"):
+        data["application_url"] = data.get("job_url", "")
+    if not data.get("job_url"):
+        data["job_url"] = data.get("application_url", "")
+
+    # Harmonize failure_reason and message
+    if not data.get("failure_reason") and data.get("message"):
+        data["failure_reason"] = data.get("message", "")
+
+    # Harmonize steps and progress_steps
+    if not data.get("progress_steps") and data.get("steps"):
+        steps = data.get("steps")
+        if isinstance(steps, list):
+            data["progress_steps"] = [s.get("step", str(s)) if isinstance(s, dict) else str(s) for s in steps]
+
+    # Harmonize updated_at and finished_at
+    if "updated_at" not in data or data["updated_at"] is None:
+        data["updated_at"] = data.get("finished_at") or data.get("created_at")
+
     q_schemas = []
     if questions:
         for q in questions:
             qd = dict(q)
             qd["id"] = str(qd.pop("_id"))
-            qd["application_id"] = str(qd.get("application_id"))
+            qd["application_id"] = str(qd.get("application_id", ""))
             q_schemas.append(ApplicationAnswerSchema(**qd))
+    elif data.get("unanswered_questions"):
+        for q in data["unanswered_questions"]:
+            if isinstance(q, dict):
+                qd = dict(q)
+                q_text = qd.get("question") or qd.get("question_text", "")
+                q_schemas.append(ApplicationAnswerSchema(
+                    id=str(qd.get("_id", qd.get("id", ""))),
+                    question_text=q_text,
+                    options=qd.get("options") or [],
+                    answer_text=qd.get("answer_text") or "",
+                    is_answered=bool(qd.get("is_answered", False))
+                ))
     data["pending_questions"] = q_schemas
     return ApplicationResponse(**data)
 

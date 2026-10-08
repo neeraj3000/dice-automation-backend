@@ -25,27 +25,39 @@ async def connect_db():
     db_instance.client = _create_client()
     db_instance.db = db_instance.client[settings.DATABASE_NAME]
     
-    # Create essential indexes
-    resumes_col = db_instance.db.resumes
-    await resumes_col.create_index([("target_role", 1)])
-    await resumes_col.create_index([("created_at", -1)])
-    await resumes_col.create_index([("file_name", 1)])
+    # Create essential indexes safely
+    try:
+        resumes_col = db_instance.db.resumes
+        await resumes_col.create_index([("target_role", 1)])
+        await resumes_col.create_index([("created_at", -1)])
+        await resumes_col.create_index([("file_name", 1)])
+    except Exception:
+        pass
 
-    jobs_col = db_instance.db.jobs
-    await jobs_col.create_index([("external_job_id", 1)], unique=True)
-    await jobs_col.create_index([("status", 1)])
+    try:
+        jobs_col = db_instance.db.jobs
+        await jobs_col.create_index([("user_id", 1), ("external_job_id", 1)])
+        await jobs_col.create_index([("status", 1)])
+    except Exception:
+        pass
 
-    apps_col = db_instance.db.applications
-    await apps_col.create_index([("status", 1)])
+    try:
+        apps_col = db_instance.db.applications
+        await apps_col.create_index([("status", 1)])
+    except Exception:
+        pass
 
     # Multi-tenant Auth indexes
-    users_col = db_instance.db.users
-    await users_col.create_index([("email", 1)], unique=True)
+    try:
+        users_col = db_instance.db.users
+        await users_col.create_index([("email", 1)], unique=True)
 
-    refresh_col = db_instance.db.refresh_tokens
-    await refresh_col.create_index([("jti_hash", 1)], unique=True)
-    await refresh_col.create_index([("user_id", 1)])
-    await refresh_col.create_index([("expires_at", 1)], expireAfterSeconds=0)
+        refresh_col = db_instance.db.refresh_tokens
+        await refresh_col.create_index([("jti_hash", 1)], unique=True)
+        await refresh_col.create_index([("user_id", 1)])
+        await refresh_col.create_index([("expires_at", 1)], expireAfterSeconds=0)
+    except Exception:
+        pass
 
 async def close_db():
     if db_instance.client:

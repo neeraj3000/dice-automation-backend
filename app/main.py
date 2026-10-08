@@ -20,6 +20,7 @@ if sys.platform == "win32":
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.config import settings
 from app.database import connect_db, close_db, get_database
 from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards
 
@@ -109,7 +110,7 @@ app = FastAPI(
 )
 
 # CORS configuration
-cors_origins_env = os.environ.get("CORS_ORIGINS", "")
+cors_origins_env = settings.CORS_ORIGINS or os.environ.get("CORS_ORIGINS", "")
 allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",

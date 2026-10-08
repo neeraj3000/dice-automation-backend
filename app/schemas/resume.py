@@ -4,7 +4,7 @@ from datetime import datetime
 
 class ResumeBase(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
-    display_name: str
+    display_name: Optional[str] = ""
     target_role: Optional[str] = ""
     skills: List[str] = []
     experience_years: Optional[str] = ""
@@ -26,12 +26,15 @@ class ResumeUpdate(BaseModel):
 class ResumeResponse(ResumeBase):
     id: str
     file_name: str
-    file_type: str
-    file_size: int
-    file_path: str
-    raw_text: str
-    created_at: datetime
-    updated_at: datetime
+    file_type: Optional[str] = "pdf"
+    file_size: Optional[int] = 0
+    file_path: Optional[str] = ""
+    raw_text: Optional[str] = ""
+    cloudinary_url: Optional[str] = None
+    cloudinary_public_id: Optional[str] = None
+    user_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 class ResumeBrief(BaseModel):
     id: str

@@ -17,21 +17,25 @@ _configured = False
 
 def is_cloudinary_configured() -> bool:
     return bool(
-        settings.cloudinary_cloud_name
-        and settings.cloudinary_api_key
-        and settings.cloudinary_api_secret
+        (settings.cloudinary_cloud_name
+         and settings.cloudinary_api_key
+         and settings.cloudinary_api_secret)
+        or settings.cloudinary_url
     )
 
 
 def _configure() -> None:
     global _configured
     if not _configured and is_cloudinary_configured():
-        cloudinary.config(
-            cloud_name=settings.cloudinary_cloud_name,
-            api_key=settings.cloudinary_api_key,
-            api_secret=settings.cloudinary_api_secret,
-            secure=True,
-        )
+        if settings.cloudinary_url:
+            cloudinary.config(cloudinary_url=settings.cloudinary_url, secure=True)
+        else:
+            cloudinary.config(
+                cloud_name=settings.cloudinary_cloud_name,
+                api_key=settings.cloudinary_api_key,
+                api_secret=settings.cloudinary_api_secret,
+                secure=True,
+            )
         _configured = True
 
 

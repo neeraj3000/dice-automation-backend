@@ -14,10 +14,22 @@ from app.browser.dice_browser import dice_browser
 def format_job_doc(doc: Dict[str, Any]) -> JobResponse:
     data = dict(doc)
     data["id"] = str(data.pop("_id"))
+    if "user_id" in data and data["user_id"] is not None:
+        data["user_id"] = str(data["user_id"])
     if not data.get("title"):
         data["title"] = "Untitled Position"
     if not data.get("company"):
         data["company"] = "Company Not Specified"
+    if not data.get("job_url"):
+        data["job_url"] = data.get("url") or (f"https://www.dice.com/job-detail/{data.get('external_job_id')}" if data.get("external_job_id") else "")
+    if not data.get("application_url"):
+        data["application_url"] = data.get("apply_url") or ""
+    if not data.get("description_raw"):
+        data["description_raw"] = data.get("description") or ""
+    if not data.get("created_at"):
+        data["created_at"] = datetime.now(timezone.utc)
+    if not data.get("updated_at"):
+        data["updated_at"] = data.get("created_at") or datetime.now(timezone.utc)
     if data.get("search_profile_id"):
         data["search_profile_id"] = str(data["search_profile_id"])
     return JobResponse(**data)

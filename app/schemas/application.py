@@ -35,7 +35,7 @@ class ApplicationAnswerSchema(BaseModel):
     id: Optional[str] = None
     question_text: str
     field_name: Optional[str] = ""
-    options: List[str] = []
+    options: Optional[List[str]] = []
     answer_text: Optional[str] = ""
     is_answered: bool = False
     created_at: Optional[datetime] = None
@@ -44,10 +44,13 @@ class ApplicationAnswerSchema(BaseModel):
 class ApplicationBase(BaseModel):
     model_config = ConfigDict(extra="allow")
     job_id: str
-    resume_id: str
-    company: str
-    job_title: str
-    application_url: str
+    resume_id: Optional[str] = ""
+    company: Optional[str] = ""
+    job_title: Optional[str] = ""
+    application_url: Optional[str] = ""
+    job_url: Optional[str] = ""
+    user_id: Optional[str] = "default"
+    board: Optional[str] = "dice"
     status: str = "READY" # QUEUED, STARTING, OPENING_JOB, FILLING_APPLICATION, UPLOADING_RESUME, SUBMITTING, SUBMITTED, FAILED, etc.
     mode: str = "PREPARE" # ANALYZE, PREPARE, APPLY
     progress_steps: List[str] = []
@@ -67,21 +70,21 @@ class ApplicationResponse(ApplicationBase):
     pending_questions: List[ApplicationAnswerSchema] = []
     retry_count: Optional[int] = 0
     max_retries: Optional[int] = 2
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 class ReviewItem(BaseModel):
     model_config = ConfigDict(extra="allow")
     id: str
     application_id: str
-    company: str
-    job_title: str
+    company: Optional[str] = ""
+    job_title: Optional[str] = ""
     question_text: str
     field_name: Optional[str] = ""
-    options: List[str] = []
+    options: Optional[List[str]] = []
     answer_text: Optional[str] = ""
     is_answered: bool = False
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
 class ReviewAnswerSubmit(BaseModel):
     answer_text: str

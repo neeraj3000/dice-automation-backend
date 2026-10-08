@@ -47,10 +47,10 @@ class JobBase(BaseModel):
     employment_type: Optional[str] = "" # Full-time, Contract, Third Party, Part-time
     posted_date: Optional[str] = ""
     is_easy_apply: bool = False
-    job_url: str
+    job_url: Optional[str] = ""
     application_url: Optional[str] = ""
     application_wizard_url: Optional[str] = ""
-    description_raw: str = ""
+    description_raw: Optional[str] = ""
     status: str = "DISCOVERED" # DISCOVERED, ANALYZED, MATCHED, APPLIED, SKIPPED
     search_profile_id: Optional[str] = None
     failure_reason: Optional[str] = None
@@ -73,10 +73,11 @@ class JobUpdate(BaseModel):
 
 class JobResponse(JobBase):
     id: str
+    user_id: Optional[str] = None
     description_structured: Optional[JDStructuredData] = None
     match_result: Optional[JobMatchResult] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 class DirectMatchRequest(BaseModel):
     title: Optional[str] = "Pasted Job"

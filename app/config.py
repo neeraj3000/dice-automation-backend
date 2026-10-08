@@ -6,8 +6,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
+    # Environment & App
+    ENVIRONMENT: str = "development"
+    CORS_ORIGINS: str = "*"
+
+    # Database configuration (supports both MONGODB_DB and DATABASE_NAME)
     MONGODB_URL: str = "mongodb://127.0.0.1:27017"
-    DATABASE_NAME: str = "dice_automation"
+    DATABASE_NAME: Optional[str] = None
+    MONGODB_DB: Optional[str] = None
     RESUMES_DIR: Path = Path(__file__).resolve().parent.parent / "resumes"
     DATA_DIR: Path = Path(__file__).resolve().parent.parent / "data"
 
@@ -19,9 +25,6 @@ class Settings(BaseSettings):
 
     # Session encryption
     SESSION_ENCRYPTION_KEY: str = ""
-
-    # CORS configuration
-    CORS_ORIGINS: str = "*"
 
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
@@ -42,6 +45,7 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
+    CLOUDINARY_URL: str = ""
     TEMP_RESUMES_DIR: Path = Path(__file__).resolve().parent.parent / "temp_resumes"
 
     # Backward-compatible property accessors for lowercase names
@@ -86,11 +90,41 @@ class Settings(BaseSettings):
         return self.CLOUDINARY_API_SECRET
 
     @property
+    def cloudinary_url(self) -> str:
+        return self.CLOUDINARY_URL
+
+    @property
+    def google_client_secret(self) -> str:
+        return self.GOOGLE_CLIENT_SECRET
+
+    @property
     def temp_resumes_dir(self) -> Path:
         return self.TEMP_RESUMES_DIR
 
+    @property
+    def mongodb_db(self) -> str:
+        return self.DATABASE_NAME or self.MONGODB_DB or "apply2hire"
+
+    @property
+    def database_name(self) -> str:
+        return self.mongodb_db
+
+    @property
+    def is_prod(self) -> bool:
+        return self.ENVIRONMENT.lower() == "production"
+
+    @property
+    def origins(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
 
 settings = Settings()
+
+# Resolve default DATABASE_NAME (ensuring MONGODB_DB or DATABASE_NAME is respected)
+if settings.DATABASE_NAME is None:
+    settings.DATABASE_NAME = settings.MONGODB_DB or "apply2hire"
+if settings.MONGODB_DB is None:
+    settings.MONGODB_DB = settings.DATABASE_NAME
 
 # Resolve default BROWSER_DATA_DIR
 if settings.BROWSER_DATA_DIR is None:
@@ -105,4 +139,5 @@ settings.RESUMES_DIR.mkdir(parents=True, exist_ok=True)
 settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
 settings.BROWSER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 settings.TEMP_RESUMES_DIR.mkdir(parents=True, exist_ok=True)
+
 
