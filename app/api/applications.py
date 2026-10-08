@@ -1,8 +1,9 @@
-from typing import List, Dict, Any
-from fastapi import APIRouter, HTTPException
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Query, Depends
 from app.schemas.application import (
     ApplicationCreate,
     ApplicationResponse,
+    AnswersBatchSubmit,
     QueueApplicationRequest,
     QueueBatchRequest,
     QueueStatusResponse,
@@ -10,8 +11,15 @@ from app.schemas.application import (
 )
 from app.services.application_service import application_service
 from app.services.application_queue import application_queue_manager
+from app.core.deps import get_current_user_optional
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
+
+@router.post("", response_model=ApplicationResponse)
+async def start_application(req: ApplicationCreate, user: Optional[dict] = Depends(get_current_user_optional)):
+    if user:
+        req.user_id = str(user["_id"])
+    return await application_service.prepare_application(req)
 
 @router.post("/prepare", response_model=ApplicationResponse)
 async def prepare_application(req: ApplicationCreate):
@@ -52,8 +60,14 @@ async def get_queue_status():
     return await application_queue_manager.get_queue_status()
 
 @router.get("", response_model=List[ApplicationResponse])
-async def list_applications():
-    return await application_service.get_applications()
+async def list_applications(
+    status: Optional[str] = Query(None, description="Filter by status"),
+    user: Optional[dict] = Depends(get_current_user_optional)
+):
+    apps = await application_service.get_applications()
+    if status and status != "ALL":
+        apps = [a for a in apps if a.status == status]
+    return apps
 
 @router.get("/{app_id}/status", response_model=ApplicationStatusResponse)
 async def get_application_status(app_id: str):
@@ -77,6 +91,13 @@ async def retry_application(app_id: str):
 @router.get("/{app_id}", response_model=ApplicationResponse)
 async def get_application(app_id: str):
     res = await application_service.get_application_by_id(app_id)
+    if not res:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return res
+
+@router.post("/{app_id}/answers", response_model=ApplicationResponse)
+async def answer_application(app_id: str, payload: AnswersBatchSubmit):
+    res = await application_service.answer_application_batch(app_id, payload.answers)
     if not res:
         raise HTTPException(status_code=404, detail="Application not found")
     return res

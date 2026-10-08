@@ -5,15 +5,15 @@ from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from fastapi import HTTPException
 
-from app.database import get_database
+from app.database import get_database, sanitize_object_ids
 from app.schemas.job import JobResponse, JobUpdate, DirectMatchRequest, JobMatchResult
 from app.services.jd_service import jd_service
 from app.services.matching_service import matching_service
 from app.browser.dice_browser import dice_browser
 
 def format_job_doc(doc: Dict[str, Any]) -> JobResponse:
-    data = dict(doc)
-    data["id"] = str(data.pop("_id"))
+    data = sanitize_object_ids(dict(doc))
+    data["id"] = str(data.pop("_id", data.get("id", "")))
     if "user_id" in data and data["user_id"] is not None:
         data["user_id"] = str(data["user_id"])
     if not data.get("title"):
@@ -22,16 +22,34 @@ def format_job_doc(doc: Dict[str, Any]) -> JobResponse:
         data["company"] = "Company Not Specified"
     if not data.get("job_url"):
         data["job_url"] = data.get("url") or (f"https://www.dice.com/job-detail/{data.get('external_job_id')}" if data.get("external_job_id") else "")
+    if not data.get("url"):
+        data["url"] = data.get("job_url") or ""
     if not data.get("application_url"):
         data["application_url"] = data.get("apply_url") or ""
     if not data.get("description_raw"):
         data["description_raw"] = data.get("description") or ""
+    if "is_easy_apply" not in data:
+        data["is_easy_apply"] = bool(data.get("easy_apply", False))
+    if "board" not in data:
+        data["board"] = "dice"
     if not data.get("created_at"):
         data["created_at"] = datetime.now(timezone.utc)
     if not data.get("updated_at"):
         data["updated_at"] = data.get("created_at") or datetime.now(timezone.utc)
     if data.get("search_profile_id"):
         data["search_profile_id"] = str(data["search_profile_id"])
+
+    # Harmonize match_result and match
+    if not data.get("match") and data.get("match_result"):
+        mr = data["match_result"]
+        data["match"] = {
+            "score": mr.get("match_percentage", 0),
+            "matched": mr.get("matched_skills", []),
+            "missing": mr.get("missing_skills", []),
+            "resume_id": mr.get("recommended_resume_id", ""),
+            "resume_name": mr.get("recommended_resume_file_name", ""),
+            "alternatives": mr.get("alternatives", []),
+        }
     return JobResponse(**data)
 
 class JobService:
@@ -46,11 +64,18 @@ class JobService:
         status: Optional[str] = None,
         location: Optional[str] = None,
         search_profile_id: Optional[str] = None,
-        exclude_applied: bool = False
-    ) -> List[JobResponse]:
+        exclude_applied: bool = False,
+        board: Optional[str] = None,
+        q: Optional[str] = None,
+        easy_apply: Optional[bool] = None,
+        page: Optional[int] = None,
+        page_size: Optional[int] = None,
+        user_id: Optional[str] = None
+    ) -> Any:
         query = {}
-        if search:
-            regex = {"$regex": re.escape(search), "$options": "i"}
+        search_term = q or search
+        if search_term:
+            regex = {"$regex": re.escape(search_term.strip()), "$options": "i"}
             query["$or"] = [
                 {"title": regex},
                 {"company": regex},
@@ -58,21 +83,45 @@ class JobService:
                 {"location": regex}
             ]
         if company:
-            query["company"] = {"$regex": re.escape(company), "$options": "i"}
+            query["company"] = {"$regex": re.escape(company.strip()), "$options": "i"}
+        if board:
+            query["board"] = board
+        if easy_apply is not None:
+            query["is_easy_apply"] = easy_apply
         if exclude_applied:
             query["status"] = {"$ne": "APPLIED"}
         elif status:
-            query["status"] = status
+            if status == "NEW":
+                query["status"] = {"$in": ["DISCOVERED", "ANALYZED", "MATCHED", "NEW", "READY"]}
+            else:
+                query["status"] = status
         if location:
-            query["location"] = {"$regex": re.escape(location), "$options": "i"}
+            query["location"] = {"$regex": re.escape(location.strip()), "$options": "i"}
         if search_profile_id and ObjectId.is_valid(search_profile_id):
             query["search_profile_id"] = ObjectId(search_profile_id)
+        if user_id and user_id != "default":
+            u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            u_query.append(user_id)
+            query["$or"] = query.get("$or", []) + [{"user_id": {"$in": u_query}}, {"user_id": "default"}, {"user_id": {"$exists": False}}]
 
-        cursor = self.jobs_col.find(query).sort("created_at", -1)
-        jobs = []
-        async for doc in cursor:
-            jobs.append(format_job_doc(doc))
+        total = await self.jobs_col.count_documents(query)
+
+        # Pagination handling
+        cur = self.jobs_col.find(query).sort("created_at", -1)
+        if page is not None and page_size is not None:
+            cur = cur.skip((page - 1) * page_size).limit(page_size)
+            items = [format_job_doc(doc) async for doc in cur]
+            return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+        jobs = [format_job_doc(doc) async for doc in cur]
         return jobs
+
+    async def delete_job(self, job_id: str, user_id: Optional[str] = None) -> bool:
+        if not ObjectId.is_valid(job_id):
+            return False
+        q = {"_id": ObjectId(job_id)}
+        res = await self.jobs_col.delete_one(q)
+        return res.deleted_count > 0
 
     async def clear_all_jobs(self) -> Dict[str, Any]:
         res = await self.jobs_col.delete_many({})

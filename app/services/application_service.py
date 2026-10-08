@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from fastapi import HTTPException
 
-from app.database import get_database
+from app.database import get_database, sanitize_object_ids
 from app.schemas.application import (
     ApplicationResponse, ApplicationAnswerSchema, ReviewItem, ApplicationCreate
 )
@@ -13,8 +13,8 @@ from app.services.jd_service import jd_service
 from app.browser.application_browser import application_browser
 
 def format_app_doc(doc: Dict[str, Any], questions: List[Dict[str, Any]] = None) -> ApplicationResponse:
-    data = dict(doc)
-    data["id"] = str(data.pop("_id"))
+    data = sanitize_object_ids(dict(doc))
+    data["id"] = str(data.pop("_id", data.get("id", "")))
     data["job_id"] = str(data.get("job_id", ""))
     data["resume_id"] = str(data.get("resume_id", "")) if data.get("resume_id") else ""
     if "user_id" in data and data["user_id"] is not None:
@@ -60,6 +60,26 @@ def format_app_doc(doc: Dict[str, Any], questions: List[Dict[str, Any]] = None) 
                     is_answered=bool(qd.get("is_answered", False))
                 ))
     data["pending_questions"] = q_schemas
+
+    # Populate unanswered_questions list if not already present
+    if not data.get("unanswered_questions"):
+        unans = []
+        for q in q_schemas:
+            if not q.is_answered:
+                unans.append({"question": q.question_text, "options": q.options or []})
+        data["unanswered_questions"] = unans
+
+    # Populate steps if missing
+    if not data.get("steps"):
+        step_time = data.get("created_at") or datetime.now(timezone.utc)
+        data["steps"] = [{"at": step_time, "message": s} for s in data.get("progress_steps", [])]
+
+    # Populate message and external_url
+    if not data.get("message"):
+        data["message"] = data.get("failure_reason") or ("Application submitted." if data.get("status") == "APPLIED" else "")
+    if not data.get("external_url"):
+        data["external_url"] = None
+
     return ApplicationResponse(**data)
 
 class ApplicationService:
@@ -441,5 +461,37 @@ class ApplicationService:
                     }
                 )
         return True
+
+    async def answer_application_batch(self, app_id: str, answers: List[Dict[str, Any]]) -> Optional[ApplicationResponse]:
+        if not ObjectId.is_valid(app_id):
+            return None
+        app = await self.apps_col.find_one({"_id": ObjectId(app_id)})
+        if not app:
+            return None
+
+        now = datetime.now(timezone.utc)
+        for a in answers:
+            q_text = a.get("question") or a.get("question_text", "")
+            ans_text = a.get("answer") or a.get("answer_text", "")
+            await self.answers_col.update_many(
+                {"application_id": ObjectId(app_id), "question_text": q_text},
+                {"$set": {"answer_text": ans_text, "is_answered": True, "answered_at": now}}
+            )
+
+        updated = await self.apps_col.find_one_and_update(
+            {"_id": ObjectId(app_id)},
+            {
+                "$set": {
+                    "status": "READY",
+                    "unanswered_questions": [],
+                    "updated_at": now
+                },
+                "$push": {
+                    "progress_steps": "Questions answered by user. Application marked READY."
+                }
+            },
+            return_document=True
+        )
+        return format_app_doc(updated)
 
 application_service = ApplicationService()

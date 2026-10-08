@@ -9,6 +9,7 @@ class ResumeBase(BaseModel):
     skills: List[str] = []
     experience_years: Optional[str] = ""
     summary: Optional[str] = ""
+    is_default: bool = False
     custom_fields: Optional[Dict[str, Any]] = {}
 
 class ResumeCreate(ResumeBase):

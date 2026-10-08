@@ -7,7 +7,7 @@ from bson import ObjectId
 from fastapi import UploadFile, HTTPException
 
 from app.config import settings
-from app.database import get_database
+from app.database import get_database, sanitize_object_ids
 from app.schemas.resume import ResumeResponse, ResumeUpdate, ResumeBrief
 from app.services.parser_service import extract_text
 from app.services.llm_service import llm_service
@@ -15,8 +15,8 @@ from app.services.llm_service import llm_service
 def format_resume_doc(doc: Dict[str, Any]) -> ResumeResponse:
     if not doc:
         return None
-    data = dict(doc)
-    data["id"] = str(data.pop("_id"))
+    data = sanitize_object_ids(dict(doc))
+    data["id"] = str(data.pop("_id", data.get("id", "")))
     if "user_id" in data and data["user_id"] is not None:
         data["user_id"] = str(data["user_id"])
     if not data.get("display_name"):
@@ -36,7 +36,7 @@ class ResumeService:
         db = get_database()
         return db.resumes
 
-    async def save_uploaded_resume(self, file: UploadFile) -> ResumeResponse:
+    async def save_uploaded_resume(self, file: UploadFile, user_id: Optional[str] = None) -> ResumeResponse:
         original_name = file.filename or "unnamed_resume"
         ext = Path(original_name).suffix.lower()
         if ext not in settings.ALLOWED_EXTENSIONS:
@@ -90,6 +90,7 @@ class ResumeService:
             pass
 
         doc = {
+            "user_id": user_id,
             "file_name": target_name,
             "file_type": ext.replace(".", ""),
             "file_size": file_size,
@@ -111,17 +112,23 @@ class ResumeService:
         doc["_id"] = result.inserted_id
         return format_resume_doc(doc)
 
-    async def get_resumes(self, search: Optional[str] = None, role: Optional[str] = None) -> List[ResumeResponse]:
+    async def get_resumes(self, search: Optional[str] = None, role: Optional[str] = None, user_id: Optional[str] = None) -> List[ResumeResponse]:
         query = {}
+        if user_id and user_id != "default":
+            query["$or"] = [{"user_id": user_id}, {"user_id": "default"}, {"user_id": None}]
         if search:
             regex = {"$regex": re.escape(search), "$options": "i"}
-            query["$or"] = [
+            search_clause = [
                 {"display_name": regex},
                 {"target_role": regex},
                 {"skills": regex},
                 {"file_name": regex},
                 {"summary": regex}
             ]
+            if "$or" in query:
+                query["$and"] = [{"$or": query.pop("$or")}, {"$or": search_clause}]
+            else:
+                query["$or"] = search_clause
         if role:
             query["target_role"] = {"$regex": re.escape(role), "$options": "i"}
 
@@ -287,6 +294,22 @@ class ResumeService:
                     "updated_at": now
                 }
             },
+            return_document=True
+        )
+        return format_resume_doc(updated)
+
+    async def set_default_resume(self, resume_id: str, user_id: str = "default") -> Optional[ResumeResponse]:
+        if not ObjectId.is_valid(resume_id):
+            return None
+        target = await self.collection.find_one({"_id": ObjectId(resume_id)})
+        if not target:
+            return None
+        u_match = target.get("user_id")
+        q = {"user_id": u_match} if u_match else {}
+        await self.collection.update_many(q, {"$set": {"is_default": False}})
+        updated = await self.collection.find_one_and_update(
+            {"_id": ObjectId(resume_id)},
+            {"$set": {"is_default": True, "updated_at": datetime.now(timezone.utc)}},
             return_document=True
         )
         return format_resume_doc(updated)

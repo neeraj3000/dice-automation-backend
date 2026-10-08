@@ -142,27 +142,32 @@ else:
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
 
-# Include Routers (available directly at root http://localhost:8000)
-app.include_router(resumes.router)
-app.include_router(search.router)
-app.include_router(jobs.router)
-app.include_router(applications.router)
-app.include_router(review.router)
-app.include_router(settings_api.router)
-app.include_router(dice_session.router)
-app.include_router(auth.router, prefix="/api")
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(boards.router, prefix="/api")
-app.include_router(boards.router, prefix="/api/v1")
+# Routers list
+routers = [
+    resumes.router,
+    search.router,
+    search.search_router,
+    jobs.router,
+    applications.router,
+    review.router,
+    settings_api.router,
+    dice_session.router,
+    auth.router,
+    boards.router,
+]
 
-# Also support /api prefix for backwards compatibility
-app.include_router(resumes.router, prefix="/api", include_in_schema=False)
-app.include_router(search.router, prefix="/api", include_in_schema=False)
-app.include_router(jobs.router, prefix="/api", include_in_schema=False)
-app.include_router(applications.router, prefix="/api", include_in_schema=False)
-app.include_router(review.router, prefix="/api", include_in_schema=False)
-app.include_router(settings_api.router, prefix="/api", include_in_schema=False)
-app.include_router(dice_session.router, prefix="/api", include_in_schema=False)
+# Include Routers at root (available directly at http://localhost:8000/)
+for r in routers:
+    app.include_router(r)
+
+# Support /api prefix
+for r in routers:
+    app.include_router(r, prefix="/api", include_in_schema=False)
+
+# Support /api/v1 prefix (used by default bench-sales client baseQuery)
+for r in routers:
+    app.include_router(r, prefix="/api/v1", include_in_schema=False)
+
 
 @app.get("/")
 async def root():
@@ -179,6 +184,7 @@ async def root():
 
 @app.get("/health")
 @app.get("/api/health", include_in_schema=False)
+@app.get("/api/v1/health", include_in_schema=False)
 async def health_check():
     db = get_database()
     db_status = "connected" if db is not None else "disconnected"

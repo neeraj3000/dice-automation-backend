@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from fastapi import HTTPException
 
-from app.database import get_database
+from app.database import get_database, sanitize_object_ids
 from app.schemas.search_profile import (
     SearchProfileCreate, SearchProfileUpdate, SearchProfileResponse
 )
@@ -17,8 +17,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 def format_profile_doc(doc: Dict[str, Any]) -> SearchProfileResponse:
-    data = dict(doc)
-    data["id"] = str(data.pop("_id"))
+    data = sanitize_object_ids(dict(doc))
+    data["id"] = str(data.pop("_id", data.get("id", "")))
     return SearchProfileResponse(**data)
 
 class SearchService:

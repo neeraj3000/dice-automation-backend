@@ -48,6 +48,8 @@ class JobBase(BaseModel):
     posted_date: Optional[str] = ""
     is_easy_apply: bool = False
     job_url: Optional[str] = ""
+    url: Optional[str] = ""
+    board: Optional[str] = "dice"
     application_url: Optional[str] = ""
     application_wizard_url: Optional[str] = ""
     description_raw: Optional[str] = ""
@@ -76,8 +78,16 @@ class JobResponse(JobBase):
     user_id: Optional[str] = None
     description_structured: Optional[JDStructuredData] = None
     match_result: Optional[JobMatchResult] = None
+    match: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+class JobListResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    items: List[JobResponse]
+    total: int
+    page: Optional[int] = 1
+    page_size: Optional[int] = 20
 
 class DirectMatchRequest(BaseModel):
     title: Optional[str] = "Pasted Job"

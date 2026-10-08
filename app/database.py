@@ -67,3 +67,13 @@ def utcnow():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)
 
+def sanitize_object_ids(val):
+    from bson import ObjectId
+    if isinstance(val, ObjectId):
+        return str(val)
+    if isinstance(val, dict):
+        return {k: sanitize_object_ids(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [sanitize_object_ids(v) for v in val]
+    return val
+

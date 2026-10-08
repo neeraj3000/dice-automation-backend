@@ -1,5 +1,6 @@
 import asyncio
-from fastapi import APIRouter
+from typing import Optional, List, Dict, Any
+from fastapi import APIRouter, Depends, Body
 from app.database import get_database
 from app.schemas.user_profile import UserProfileSchema, AppSettingsSchema
 from app.services.settings_service import settings_service
@@ -14,27 +15,57 @@ async def get_user_profile():
 async def update_user_profile(profile: UserProfileSchema):
     return await settings_service.update_profile(profile)
 
-@router.get("/settings", response_model=AppSettingsSchema)
+@router.get("/settings")
 async def get_app_settings():
-    return await settings_service.get_settings()
+    app_cfg = await settings_service.get_settings()
+    profile = await settings_service.get_profile()
+    profile_dict = profile.model_dump()
+    profile_dict["linkedin"] = profile_dict.get("linkedin_url", "")
+    profile_dict["github"] = profile_dict.get("github_url", "")
+    profile_dict["portfolio"] = profile_dict.get("portfolio_url", "")
+    try:
+        profile_dict["years_experience"] = int(profile_dict.get("years_of_experience", 0)) if profile_dict.get("years_of_experience") else None
+    except Exception:
+        profile_dict["years_experience"] = None
+    profile_dict["authorized_to_work"] = profile_dict.get("work_authorization") in ["US Citizen", "Green Card", "Authorized", "Yes", True]
+    profile_dict["requires_sponsorship"] = not profile_dict["authorized_to_work"]
 
-import os
-import sys
-import logging
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+    data = app_cfg.model_dump()
+    data["profile"] = profile_dict
+    data["headless"] = data.get("headless_browser", False)
+    return data
 
-logger = logging.getLogger(__name__)
+from fastapi import Body
+from app.core.deps import get_current_user_optional
 
-class SessionImportPayload(BaseModel):
-    cookies: Optional[List[Dict[str, Any]]] = None
-    cookie_string: Optional[str] = None
-    username: Optional[str] = None
-    local_storage: Optional[Dict[str, Any]] = None
+@router.put("/settings")
+async def update_app_settings(body: Dict[str, Any] = Body(...)):
+    if "profile" in body and isinstance(body["profile"], dict):
+        p_raw = dict(body["profile"])
+        if "linkedin" in p_raw: p_raw["linkedin_url"] = p_raw["linkedin"]
+        if "github" in p_raw: p_raw["github_url"] = p_raw["github"]
+        if "portfolio" in p_raw: p_raw["portfolio_url"] = p_raw["portfolio"]
+        if "years_experience" in p_raw and p_raw["years_experience"] is not None:
+            p_raw["years_of_experience"] = str(p_raw["years_experience"])
+        if "authorized_to_work" in p_raw:
+            p_raw["work_authorization"] = "US Citizen" if p_raw["authorized_to_work"] else "Requires Sponsorship"
 
-@router.put("/settings", response_model=AppSettingsSchema)
-async def update_app_settings(settings: AppSettingsSchema):
-    return await settings_service.update_settings(settings)
+        prof = UserProfileSchema(**p_raw)
+        await settings_service.update_profile(prof)
+
+    if "headless" in body:
+        body["headless_browser"] = bool(body["headless"])
+
+    cfg_data = {k: v for k, v in body.items() if k not in ["profile", "headless"]}
+    current_cfg = await settings_service.get_settings()
+    merged = current_cfg.model_dump()
+    merged.update(cfg_data)
+    if "headless_browser" in body:
+        merged["headless_browser"] = body["headless_browser"]
+
+    await settings_service.update_settings(AppSettingsSchema(**merged))
+    return await get_app_settings()
+
 
 from fastapi.responses import StreamingResponse
 from app.services.dice_session_manager import dice_session_manager
@@ -56,6 +87,14 @@ async def stream_dice_session():
             "X-Accel-Buffering": "no"
         }
     )
+
+from pydantic import BaseModel
+
+class SessionImportPayload(BaseModel):
+    cookies: Optional[List[Dict[str, Any]]] = None
+    cookie_string: Optional[str] = None
+    username: Optional[str] = None
+    local_storage: Optional[Dict[str, Any]] = None
 
 @router.post("/settings/import-dice-session")
 async def import_dice_session(payload: SessionImportPayload):
@@ -95,8 +134,9 @@ async def install_browser():
         **status
     }
 
+@router.get("/stats")
 @router.get("/dashboard/stats")
-async def get_dashboard_stats():
+async def get_dashboard_stats(user: Optional[dict] = Depends(get_current_user_optional)):
     db = get_database()
     resumes_count = await db.resumes.count_documents({})
     profiles_count = await db.search_profiles.count_documents({})
@@ -106,6 +146,17 @@ async def get_dashboard_stats():
     apps_ready = await db.applications.count_documents({"status": "READY"})
     apps_applied = await db.applications.count_documents({"status": "APPLIED"})
     review_count = await db.application_answers.count_documents({"is_answered": False})
+
+    # Group applications by status for bench-sales-frontend
+    apps_by_status = {}
+    async for d in db.applications.aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
+        if d.get("_id"):
+            apps_by_status[d["_id"]] = d.get("n", 0)
+
+    # Check board connection status
+    from app.services.settings_service import settings_service
+    d_stat = await settings_service.get_dice_status(check_live=False)
+    conn_count = 1 if d_stat.get("is_connected") else 0
 
     # Get 5 recent applications
     recent_apps = []
@@ -121,6 +172,12 @@ async def get_dashboard_stats():
         })
 
     return {
+        # bench-sales keys
+        "jobs": jobs_count,
+        "resumes": resumes_count,
+        "applications": apps_by_status,
+        "connected_boards": conn_count,
+        # dice-automation keys
         "resumes_count": resumes_count,
         "profiles_count": profiles_count,
         "jobs_count": jobs_count,
@@ -131,3 +188,4 @@ async def get_dashboard_stats():
         "review_count": review_count,
         "recent_applications": recent_apps
     }
+

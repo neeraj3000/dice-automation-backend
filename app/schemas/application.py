@@ -55,6 +55,8 @@ class ApplicationBase(BaseModel):
     mode: str = "PREPARE" # ANALYZE, PREPARE, APPLY
     progress_steps: List[str] = []
     failure_reason: Optional[str] = ""
+    message: Optional[str] = ""
+    external_url: Optional[str] = ""
     applied_at: Optional[datetime] = None
 
 class ApplicationCreate(BaseModel):
@@ -68,10 +70,17 @@ class ApplicationResponse(ApplicationBase):
     resume_name: Optional[str] = ""
     match_percentage: Optional[int] = None
     pending_questions: List[ApplicationAnswerSchema] = []
+    unanswered_questions: List[Dict[str, Any]] = []
+    steps: List[Dict[str, Any]] = []
     retry_count: Optional[int] = 0
     max_retries: Optional[int] = 2
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+class AnswersBatchSubmit(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    answers: List[Dict[str, Any]]
+
 
 class ReviewItem(BaseModel):
     model_config = ConfigDict(extra="allow")
