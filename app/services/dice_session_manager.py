@@ -26,8 +26,18 @@ class DiceSessionManager:
         self._active_page: Optional[Page] = None
         self._watcher_task: Optional[asyncio.Task] = None
         self._subscribers: Set[asyncio.Queue] = set()
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._status: str = "IDLE"  # IDLE, WAITING_FOR_LOGIN, CONNECTED, CANCELLED
+
+    def _ensure_lock(self):
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if self._loop != current_loop or self._lock is None:
+            self._loop = current_loop
+            self._lock = asyncio.Lock()
 
     @property
     def current_status(self) -> str:
@@ -117,12 +127,14 @@ class DiceSessionManager:
                     return True
         return False
 
-    async def start_interactive_login(self) -> Dict[str, Any]:
+    async def start_interactive_login(self, user_id: Optional[str] = "default") -> Dict[str, Any]:
         """
         Starts an interactive browser login session.
         - In cloud/headless mode: Returns login URL and instructions for client-side sign-in & sync.
         - In local desktop mode: Opens a visible Chromium window on the user's desktop with full login supervision.
         """
+        self._ensure_lock()
+        self._current_user_id = user_id or "default"
         if playwright_manager.is_cloud_mode:
             logger.info("start_interactive_login requested in headless/cloud mode.")
             status = await settings_service.get_dice_status(check_live=True)
@@ -184,7 +196,12 @@ class DiceSessionManager:
                     except Exception:
                         pass
 
-                await page.goto("https://www.dice.com/dashboard/login", wait_until="domcontentloaded", timeout=30000)
+                async def _navigate_and_supervise():
+                    try:
+                        await page.goto("https://www.dice.com/dashboard/login", wait_until="domcontentloaded", timeout=30000)
+                    except Exception as ge:
+                        logger.warning(f"Navigation notice to Dice login page: {ge}")
+                    await self._supervise_login_lifecycle(page)
 
                 # Broadcast login start to frontend
                 await self.broadcast("LOGIN_STARTED", {
@@ -195,7 +212,7 @@ class DiceSessionManager:
 
                 # Spawn supervised watcher
                 self._watcher_task = asyncio.create_task(
-                    self._supervise_login_lifecycle(page),
+                    _navigate_and_supervise(),
                     name="dice_login_supervisor"
                 )
 

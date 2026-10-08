@@ -1,3 +1,4 @@
+from app.services import session_store
 import logging
 import json
 from pathlib import Path
@@ -710,7 +711,8 @@ class SettingsService:
         cookies: Optional[list] = None,
         cookie_string: Optional[str] = None,
         username: Optional[str] = None,
-        local_storage: Optional[Dict[str, Any]] = None
+        local_storage: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = "default"
     ) -> Dict[str, Any]:
         raw_cookies: list = []
 
@@ -873,9 +875,9 @@ class SettingsService:
         try:
             from app.models.session import DiceSession
             from app.services.session_store import get_session_store
-            session_store = get_session_store()
+            target_uid = user_id or "default"
             session_obj = DiceSession(
-                user_id="default",
+                user_id=target_uid,
                 status="CONNECTED" if is_connected else "DISCONNECTED",
                 is_connected=is_connected,
                 username=resolved_username if is_connected else "",
@@ -887,7 +889,9 @@ class SettingsService:
                 identity=next((c.get("value", "") for c in sanitized_cookies if c.get("name") == "identity"), ""),
                 last_verified_at=datetime.now(timezone.utc)
             )
-            await session_store.save_session("default", session_obj)
+            await session_store.save_session(target_uid, session_obj)
+            if target_uid != "default":
+                await session_store.save_session("default", session_obj)
         except Exception as store_err:
             logger.debug(f"Notice saving session to session_store: {store_err}")
 
