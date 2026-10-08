@@ -264,8 +264,12 @@ class ApplicationService:
         saved_app = await self.apps_col.find_one({"_id": app_id})
         return format_app_doc(saved_app, pending_qs)
 
-    async def get_applications(self) -> List[ApplicationResponse]:
-        cursor = self.apps_col.find({}).sort("created_at", -1)
+    async def get_applications(self, user_id: Optional[Any] = None) -> List[ApplicationResponse]:
+        if not user_id:
+            return []
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        query = {"user_id": {"$in": u_oids + [str(user_id)]}}
+        cursor = self.apps_col.find(query).sort("created_at", -1)
         apps = []
         async for doc in cursor:
             # fetch pending questions
@@ -274,10 +278,14 @@ class ApplicationService:
             apps.append(format_app_doc(doc, qs))
         return apps
 
-    async def get_application_by_id(self, app_id: str) -> Optional[ApplicationResponse]:
+    async def get_application_by_id(self, app_id: str, user_id: Optional[Any] = None) -> Optional[ApplicationResponse]:
         if not ObjectId.is_valid(app_id):
             return None
-        doc = await self.apps_col.find_one({"_id": ObjectId(app_id)})
+        query = {"_id": ObjectId(app_id)}
+        if user_id:
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            query["user_id"] = {"$in": u_oids + [str(user_id)]}
+        doc = await self.apps_col.find_one(query)
         if not doc:
             return None
         q_cursor = self.answers_col.find({"application_id": ObjectId(app_id)})
@@ -403,8 +411,14 @@ class ApplicationService:
         )
         return format_app_doc(updated, pending_qs)
 
-    async def get_review_queue(self) -> List[ReviewItem]:
-        cursor = self.answers_col.find({"is_answered": False}).sort("created_at", -1)
+    async def get_review_queue(self, user_id: Optional[Any] = None) -> List[ReviewItem]:
+        if not user_id:
+            return []
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        user_app_ids = await self.apps_col.distinct("_id", {"user_id": {"$in": u_oids + [str(user_id)]}})
+        if not user_app_ids:
+            return []
+        cursor = self.answers_col.find({"application_id": {"$in": user_app_ids}, "is_answered": False}).sort("created_at", -1)
         items = []
         async for doc in cursor:
             app_id = doc.get("application_id")
@@ -423,9 +437,17 @@ class ApplicationService:
             ))
         return items
 
-    async def answer_review_question(self, question_id: str, answer_text: str) -> bool:
+    async def answer_review_question(self, question_id: str, answer_text: str, user_id: Optional[Any] = None) -> bool:
         if not ObjectId.is_valid(question_id):
             return False
+        q_doc = await self.answers_col.find_one({"_id": ObjectId(question_id)})
+        if not q_doc:
+            return False
+        if user_id:
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            app = await self.apps_col.find_one({"_id": q_doc.get("application_id"), "user_id": {"$in": u_oids + [str(user_id)]}})
+            if not app:
+                return False
         q_doc = await self.answers_col.find_one_and_update(
             {"_id": ObjectId(question_id)},
             {
@@ -437,8 +459,6 @@ class ApplicationService:
             },
             return_document=True
         )
-        if not q_doc:
-            return False
 
         # If no more pending questions for this application, move status to READY
         app_id = q_doc.get("application_id")

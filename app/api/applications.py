@@ -64,7 +64,8 @@ async def list_applications(
     status: Optional[str] = Query(None, description="Filter by status"),
     user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    apps = await application_service.get_applications()
+    user_id = user["_id"] if user else None
+    apps = await application_service.get_applications(user_id=user_id)
     if status and status != "ALL":
         apps = [a for a in apps if a.status == status]
     return apps
@@ -89,8 +90,9 @@ async def retry_application(app_id: str):
         raise HTTPException(status_code=400, detail=str(ve))
 
 @router.get("/{app_id}", response_model=ApplicationResponse)
-async def get_application(app_id: str):
-    res = await application_service.get_application_by_id(app_id)
+async def get_application(app_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
+    user_id = user["_id"] if user else None
+    res = await application_service.get_application_by_id(app_id, user_id=user_id)
     if not res:
         raise HTTPException(status_code=404, detail="Application not found")
     return res

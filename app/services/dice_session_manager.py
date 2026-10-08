@@ -386,6 +386,25 @@ class DiceSessionManager:
             self._active_page = None
             self._watcher_task = None
 
+    async def disconnect(self, user_id: Optional[str] = "default"):
+        """Terminates active interactive login flow, resets manager state, and broadcasts disconnect."""
+        logger.info(f"[DiceSessionManager] Disconnecting session for user: {user_id}")
+        if self._watcher_task and not self._watcher_task.done():
+            self._watcher_task.cancel()
+            self._watcher_task = None
+        if self._active_page and not self._active_page.is_closed():
+            try:
+                await self._active_page.close()
+            except Exception as e:
+                logger.debug(f"[DiceSessionManager] Error closing active page: {e}")
+        self._active_page = None
+        self._status = "IDLE"
+        await self.broadcast("DICE_DISCONNECTED", {
+            "manager_status": "IDLE",
+            "message": "Dice session disconnected.",
+            "is_connected": False
+        })
+
     async def cleanup(self):
         """Cleans up active tasks and pages on shutdown."""
         logger.info("[DiceSessionManager] Cleaning up active login tasks...")

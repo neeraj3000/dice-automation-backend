@@ -131,6 +131,19 @@ async def test_boards_api_endpoints():
             status_data = res_status.json()
             assert status_data["key"] == "dice"
             assert "status" in status_data
+
+            # Test board disconnect endpoints across root, /api, and /api/v1 prefixes
+            disc_resp = await client.post("/api/boards/dice/disconnect")
+            assert disc_resp.status_code == 200
+            assert disc_resp.json()["status"] == "success"
+
+            disc_resp2 = await client.post("/boards/dice/disconnect")
+            assert disc_resp2.status_code == 200
+            assert disc_resp2.json()["status"] == "success"
+
+            disc_resp3 = await client.post("/api/v1/boards/dice/disconnect")
+            assert disc_resp3.status_code == 200
+            assert disc_resp3.json()["status"] == "success"
     finally:
         await close_db()
 

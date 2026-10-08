@@ -1,6 +1,7 @@
 import asyncio
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, Body
+from app.core.deps import get_current_user_optional
 from app.database import get_database
 from app.schemas.user_profile import UserProfileSchema, AppSettingsSchema
 from app.services.settings_service import settings_service
@@ -8,18 +9,75 @@ from app.services.settings_service import settings_service
 router = APIRouter(tags=["Settings & Profile"])
 
 @router.get("/profile", response_model=UserProfileSchema)
-async def get_user_profile():
+async def get_user_profile(user: Optional[dict] = Depends(get_current_user_optional)):
+    db = get_database()
+    if user and db is not None:
+        uid = user["_id"]
+        user_sett = await db.settings.find_one({"user_id": {"$in": [uid, str(uid)]}})
+        if user_sett and user_sett.get("profile"):
+            p_data = dict(user_sett["profile"])
+            return UserProfileSchema(**{**UserProfileSchema().model_dump(), **p_data})
+        name_parts = (user.get("name") or "").split()
+        return UserProfileSchema(
+            first_name=name_parts[0] if name_parts else "",
+            last_name=" ".join(name_parts[1:]) if len(name_parts) > 1 else "",
+            email=user.get("email", "")
+        )
     return await settings_service.get_profile()
 
 @router.put("/profile", response_model=UserProfileSchema)
-async def update_user_profile(profile: UserProfileSchema):
+async def update_user_profile(profile: UserProfileSchema, user: Optional[dict] = Depends(get_current_user_optional)):
+    db = get_database()
+    if user and db is not None:
+        from datetime import datetime, timezone
+        uid = user["_id"]
+        await db.settings.update_one(
+            {"user_id": uid},
+            {"$set": {
+                "user_id": uid,
+                "profile": profile.model_dump(),
+                "updated_at": datetime.now(timezone.utc)
+            }},
+            upsert=True
+        )
+        return profile
     return await settings_service.update_profile(profile)
 
 @router.get("/settings")
-async def get_app_settings():
+async def get_app_settings(user: Optional[dict] = Depends(get_current_user_optional)):
     app_cfg = await settings_service.get_settings()
-    profile = await settings_service.get_profile()
-    profile_dict = profile.model_dump()
+    db = get_database()
+    profile_dict = {}
+
+    if user and db is not None:
+        uid = user["_id"]
+        user_sett = await db.settings.find_one({"user_id": {"$in": [uid, str(uid)]}})
+        if user_sett and user_sett.get("profile"):
+            profile_dict = dict(user_sett["profile"])
+
+    if not profile_dict:
+        if user:
+            name_parts = (user.get("name") or "").split()
+            profile_dict = {
+                "first_name": name_parts[0] if name_parts else "",
+                "last_name": " ".join(name_parts[1:]) if len(name_parts) > 1 else "",
+                "email": user.get("email", ""),
+                "phone": user.get("phone", ""),
+                "city": "",
+                "state": "",
+                "zip_code": "",
+                "linkedin_url": "",
+                "github_url": "",
+                "portfolio_url": "",
+                "years_of_experience": "",
+                "work_authorization": "US Citizen",
+                "willing_to_relocate": False,
+                "custom_answers": {}
+            }
+        else:
+            profile = await settings_service.get_profile()
+            profile_dict = profile.model_dump()
+
     profile_dict["linkedin"] = profile_dict.get("linkedin_url", "")
     profile_dict["github"] = profile_dict.get("github_url", "")
     profile_dict["portfolio"] = profile_dict.get("portfolio_url", "")
@@ -35,11 +93,22 @@ async def get_app_settings():
     data["headless"] = data.get("headless_browser", False)
     return data
 
-from fastapi import Body
-from app.core.deps import get_current_user_optional
-
 @router.put("/settings")
-async def update_app_settings(body: Dict[str, Any] = Body(...)):
+async def update_app_settings(body: Dict[str, Any] = Body(...), user: Optional[dict] = Depends(get_current_user_optional)):
+    db = get_database()
+    if user and db is not None:
+        uid = user["_id"]
+        await db.settings.update_one(
+            {"user_id": uid},
+            {"$set": {
+                "user_id": uid,
+                "profile": body.get("profile", {}),
+                "headless": bool(body.get("headless", False)),
+                "updated_at": datetime.now(timezone.utc)
+            }},
+            upsert=True
+        )
+
     if "profile" in body and isinstance(body["profile"], dict):
         p_raw = dict(body["profile"])
         if "linkedin" in p_raw: p_raw["linkedin_url"] = p_raw["linkedin"]
@@ -64,7 +133,7 @@ async def update_app_settings(body: Dict[str, Any] = Body(...)):
         merged["headless_browser"] = body["headless_browser"]
 
     await settings_service.update_settings(AppSettingsSchema(**merged))
-    return await get_app_settings()
+    return await get_app_settings(user)
 
 
 from fastapi.responses import StreamingResponse
@@ -112,9 +181,10 @@ async def get_dice_status(check_live: bool = False):
     return await settings_service.get_dice_status(check_live=check_live)
 
 @router.post("/settings/disconnect-dice")
-async def disconnect_dice():
+async def disconnect_dice(user: Optional[dict] = Depends(get_current_user_optional)):
     """Disconnects the local Dice session, removes local cookies, and resets state."""
-    return await settings_service.disconnect_dice()
+    user_id = str(user["_id"]) if user else "default"
+    return await settings_service.disconnect_dice(user_id=user_id)
 
 @router.get("/settings/browser-status")
 async def get_browser_status():
@@ -138,29 +208,55 @@ async def install_browser():
 @router.get("/dashboard/stats")
 async def get_dashboard_stats(user: Optional[dict] = Depends(get_current_user_optional)):
     db = get_database()
-    resumes_count = await db.resumes.count_documents({})
-    profiles_count = await db.search_profiles.count_documents({})
-    jobs_count = await db.jobs.count_documents({})
-    jobs_matched = await db.jobs.count_documents({"status": "MATCHED"})
-    apps_count = await db.applications.count_documents({})
-    apps_ready = await db.applications.count_documents({"status": "READY"})
-    apps_applied = await db.applications.count_documents({"status": "APPLIED"})
-    review_count = await db.application_answers.count_documents({"is_answered": False})
+    if not user:
+        return {
+            "jobs": 0, "resumes": 0, "applications": {}, "connected_boards": 0,
+            "resumes_count": 0, "profiles_count": 0, "jobs_count": 0, "jobs_matched": 0,
+            "apps_count": 0, "apps_ready": 0, "apps_applied": 0, "review_count": 0,
+            "recent_applications": []
+        }
+
+    uid = user["_id"]
+    from bson import ObjectId
+    u_oids = [ObjectId(uid)] if ObjectId.is_valid(uid) else []
+    u_match = {"user_id": {"$in": u_oids + [str(uid)]}}
+
+    resumes_count = await db.resumes.count_documents(u_match)
+    profiles_count = await db.search_profiles.count_documents(u_match)
+    jobs_count = await db.jobs.count_documents(u_match)
+    jobs_matched = await db.jobs.count_documents({**u_match, "status": "MATCHED"})
+    apps_count = await db.applications.count_documents(u_match)
+    apps_ready = await db.applications.count_documents({**u_match, "status": "READY"})
+    apps_applied = await db.applications.count_documents({**u_match, "status": "APPLIED"})
+
+    # Applications belonging to user
+    user_app_ids = await db.applications.distinct("_id", u_match)
+    review_count = 0
+    if user_app_ids:
+        review_count = await db.application_answers.count_documents({"application_id": {"$in": user_app_ids}, "is_answered": False})
 
     # Group applications by status for bench-sales-frontend
     apps_by_status = {}
-    async for d in db.applications.aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
+    async for d in db.applications.aggregate([{"$match": u_match}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
         if d.get("_id"):
             apps_by_status[d["_id"]] = d.get("n", 0)
 
-    # Check board connection status
-    from app.services.settings_service import settings_service
-    d_stat = await settings_service.get_dice_status(check_live=False)
-    conn_count = 1 if d_stat.get("is_connected") else 0
+    # Check board connection status strictly for user
+    conn_count = await db.board_connections.count_documents({
+        "user_id": {"$in": u_oids + [str(uid)]},
+        "$or": [{"is_connected": True}, {"status": "CONNECTED"}]
+    })
+    if conn_count == 0:
+        from app.services.session_store import session_store
+        sess = await session_store.get_session(str(uid))
+        if not sess and user.get("email"):
+            sess = await session_store.get_session(user["email"].strip().lower())
+        is_conn = bool(sess and (getattr(sess, "is_connected", False) or str(getattr(sess, "status", "")).upper() in ("CONNECTED", "VALID")))
+        conn_count = 1 if is_conn else 0
 
     # Get 5 recent applications
     recent_apps = []
-    cursor = db.applications.find({}).sort("updated_at", -1).limit(5)
+    cursor = db.applications.find(u_match).sort("updated_at", -1).limit(5)
     async for doc in cursor:
         recent_apps.append({
             "id": str(doc["_id"]),

@@ -99,10 +99,14 @@ class JobService:
             query["location"] = {"$regex": re.escape(location.strip()), "$options": "i"}
         if search_profile_id and ObjectId.is_valid(search_profile_id):
             query["search_profile_id"] = ObjectId(search_profile_id)
-        if user_id and user_id != "default":
+        if user_id:
             u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            u_query.append(user_id)
-            query["$or"] = query.get("$or", []) + [{"user_id": {"$in": u_query}}, {"user_id": "default"}, {"user_id": {"$exists": False}}]
+            u_query.append(str(user_id))
+            query["user_id"] = {"$in": u_query}
+        else:
+            if page is not None and page_size is not None:
+                return {"items": [], "total": 0, "page": page, "page_size": page_size}
+            return []
 
         total = await self.jobs_col.count_documents(query)
 
@@ -123,14 +127,26 @@ class JobService:
         res = await self.jobs_col.delete_one(q)
         return res.deleted_count > 0
 
-    async def clear_all_jobs(self) -> Dict[str, Any]:
-        res = await self.jobs_col.delete_many({})
+    async def clear_all_jobs(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        query = {}
+        if user_id:
+            u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            u_query.append(str(user_id))
+            query["user_id"] = {"$in": u_query}
+        else:
+            return {"message": "User required", "count": 0}
+        res = await self.jobs_col.delete_many(query)
         return {"message": f"Successfully deleted {res.deleted_count} jobs", "count": res.deleted_count}
 
-    async def get_job_by_id(self, job_id: str) -> Optional[JobResponse]:
+    async def get_job_by_id(self, job_id: str, user_id: Optional[str] = None) -> Optional[JobResponse]:
         if not ObjectId.is_valid(job_id):
             return None
-        doc = await self.jobs_col.find_one({"_id": ObjectId(job_id)})
+        query = {"_id": ObjectId(job_id)}
+        if user_id:
+            u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            u_query.append(str(user_id))
+            query["user_id"] = {"$in": u_query}
+        doc = await self.jobs_col.find_one(query)
         if not doc:
             return None
         # Fallback check if failure_reason exists on associated application
@@ -172,7 +188,7 @@ class JobService:
         )
         return format_job_doc(updated)
 
-    async def match_job(self, job_id: str) -> JobResponse:
+    async def match_job(self, job_id: str, user_id: Optional[str] = None) -> JobResponse:
         if not ObjectId.is_valid(job_id):
             raise HTTPException(status_code=400, detail="Invalid job ID")
         doc = await self.jobs_col.find_one({"_id": ObjectId(job_id)})
@@ -186,7 +202,7 @@ class JobService:
 
         from app.schemas.job import JDStructuredData
         jd_data = JDStructuredData(**doc["description_structured"])
-        match_result = await matching_service.match_job_against_all_resumes(jd_data, job_id=job_id)
+        match_result = await matching_service.match_job_against_all_resumes(jd_data, job_id=job_id, user_id=user_id)
 
         updated = await self.jobs_col.find_one({"_id": ObjectId(job_id)})
         return format_job_doc(updated)

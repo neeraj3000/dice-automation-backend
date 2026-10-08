@@ -157,6 +157,7 @@ class SearchService:
             else:
                 j_doc = dict(j)
                 j_doc["search_profile_id"] = profile["_id"]
+                j_doc["user_id"] = user_id
                 j_doc["status"] = "DISCOVERED"
                 j_doc["created_at"] = now
                 j_doc["updated_at"] = now

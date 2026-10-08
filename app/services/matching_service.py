@@ -22,10 +22,18 @@ class MatchingService:
         return get_database().job_matches
 
     async def match_job_against_all_resumes(
-        self, jd: JDStructuredData, job_id: Optional[str] = None
+        self, jd: JDStructuredData, job_id: Optional[str] = None, user_id: Optional[str] = None
     ) -> JobMatchResult:
-        # 1. Fetch all resumes from MongoDB
-        cursor = self.resumes_col.find({})
+        # 1. Fetch user-specific resumes from MongoDB
+        from bson import ObjectId
+        query = {}
+        if user_id and user_id != "default":
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            user_q = {"user_id": {"": u_oids + [str(user_id)]}}
+            user_count = await self.resumes_col.count_documents(user_q)
+            if user_count > 0:
+                query = user_q
+        cursor = self.resumes_col.find(query)
         resumes: List[Dict[str, Any]] = []
         async for doc in cursor:
             file_name = doc.get("file_name", "")

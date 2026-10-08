@@ -449,6 +449,11 @@ class SettingsService:
                 except Exception:
                     pass
 
+        # If we have a cryptographically verified unexpired candidate token, trust it
+        # directly without failing on anti-bot/Cloudflare HTTP challenges
+        if has_unexpired_identity:
+            return {"is_connected": True, "reason": "Active session (verified candidate token)"}
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -673,31 +678,109 @@ class SettingsService:
 
     async def disconnect_dice(self, user_id: str = "default") -> Dict[str, Any]:
         """Disconnects the local Dice session, removes local cookies, securely deletes stored credentials, and terminates context."""
+        emails_to_clean = set()
+
+        # 1. Read existing session to find any associated emails/metadata
         try:
             from app.services.session_store import get_session_store
             store = get_session_store()
+            existing = await store.get_session(user_id)
+            if existing and existing.email:
+                emails_to_clean.add(existing.email.strip().lower())
+            if user_id != "default":
+                def_sess = await store.get_session("default")
+                if def_sess and def_sess.email:
+                    emails_to_clean.add(def_sess.email.strip().lower())
+        except Exception as se:
+            logger.debug(f"Notice reading existing session before delete: {se}")
+
+        local_sess = self.get_local_session()
+        if local_sess.get("email"):
+            emails_to_clean.add(local_sess["email"].strip().lower())
+
+        # 2. Delete target session and default session from SessionStore
+        try:
             await store.delete_session(user_id)
+            if user_id != "default":
+                await store.delete_session("default")
+            for em in emails_to_clean:
+                await store.delete_session(em)
         except Exception as se:
             logger.debug(f"Notice deleting session from session store: {se}")
 
+        # 3. If MongoDB is configured, clean up linked users and board connections
+        if self.db is not None:
+            try:
+                from bson import ObjectId
+                u_identifiers = [user_id, "default"]
+                if ObjectId.is_valid(user_id):
+                    u_identifiers.append(ObjectId(user_id))
+
+                for em in emails_to_clean:
+                    u_identifiers.append(em)
+                    try:
+                        u = await self.db.users.find_one({"email": em})
+                        if u:
+                            uid_str = str(u["_id"])
+                            u_identifiers.extend([uid_str, u["_id"]])
+                            await store.delete_session(uid_str)
+                    except Exception:
+                        pass
+
+                # Update board_connections collection to DISCONNECTED
+                await self.db.board_connections.update_many(
+                    {
+                        "$or": [
+                            {"user_id": {"$in": u_identifiers}},
+                            {"email": {"$in": list(emails_to_clean)}},
+                            {"account_email": {"$in": list(emails_to_clean)}}
+                        ],
+                        "$and": [
+                            {"$or": [{"board": "dice"}, {"board_key": "dice"}]}
+                        ]
+                    },
+                    {"$set": {"status": "DISCONNECTED", "is_connected": False, "cookies_count": 0}}
+                )
+
+                # Unset dice session from app_settings
+                await self.db.app_settings.update_many(
+                    {},
+                    {
+                        "$unset": {
+                            "saved_cookies": "",
+                            "dice_session_connected": "",
+                            "dice_username": "",
+                            "dice_cookies_count": "",
+                            "dice_last_verified": ""
+                        }
+                    }
+                )
+            except Exception as dbe:
+                logger.debug(f"Notice updating MongoDB board_connections on disconnect: {dbe}")
+
+        # 4. Clear machine-local session file
         self.clear_local_session()
 
-        from app.browser.playwright_manager import playwright_manager
-        await playwright_manager.close_context(user_id)
-        if playwright_manager.context:
-            try:
-                await playwright_manager.context.clear_cookies()
-            except Exception:
-                pass
+        # 5. Terminate associated browser contexts and clear cookies
+        try:
+            from app.browser.playwright_manager import playwright_manager
+            await playwright_manager.close_context(user_id)
+            if user_id != "default":
+                await playwright_manager.close_context("default")
+            if playwright_manager.context:
+                try:
+                    await playwright_manager.context.clear_cookies()
+                except Exception:
+                    pass
+        except Exception as be:
+            logger.debug(f"Notice closing browser context on disconnect: {be}")
 
+        # 6. Notify session manager supervisor and broadcast SSE event
         try:
             from app.services.dice_session_manager import dice_session_manager
-            await dice_session_manager.broadcast("DICE_DISCONNECTED", {
-                "message": "Dice session disconnected successfully on this machine.",
-                "is_connected": False
-            })
-        except Exception:
-            pass
+            await dice_session_manager.disconnect(user_id=user_id)
+        except Exception as me:
+            logger.debug(f"Notice calling dice_session_manager.disconnect: {me}")
 
         return {
             "status": "success",
