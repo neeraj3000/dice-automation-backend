@@ -50,15 +50,18 @@ async def board_status(key: str, user: Optional[dict] = Depends(get_current_user
 
 @router.post("/{key}/connect", status_code=202)
 async def connect_board(key: str, user: Optional[dict] = Depends(get_current_user_optional)):
-    get_board(key)
-    user_id = str(user["_id"]) if user else "default"
-    # Launch interactive login flow
-    res = await dice_session_manager.start_interactive_login(user_id=user_id)
+    b = get_board(key)
     return {
-        "status": "CONNECTING",
-        "key": key,
-        "message": res.get("message", f"Connecting to {key}..."),
-        **res
+        "status": "WAITING_FOR_SYNC",
+        "key": b.key,
+        "name": b.name,
+        "login_url": "https://www.dice.com/dashboard/login",
+        "message": f"Log in to {b.name} in your Chrome browser and click 'Sync Dice Account' in the extension.",
+        "instructions": [
+            f"1. Open {b.name} in your browser and sign in normally.",
+            "2. Click the Dice Sync Extension icon in your Chrome toolbar.",
+            "3. Click 'Sync Dice Account' to save your authenticated session."
+        ]
     }
 
 
