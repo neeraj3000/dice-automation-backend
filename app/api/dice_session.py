@@ -231,3 +231,40 @@ async def disconnect_dice_session(
     from app.services.settings_service import settings_service
     return await settings_service.disconnect_dice(user_id=target_uid)
 
+
+
+# ---------------------------------------------------------------------------
+# Chrome Extension download (served as a zip for "Load unpacked" install)
+# ---------------------------------------------------------------------------
+import io
+import zipfile
+from pathlib import Path
+from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
+
+EXTENSION_DIR = Path(__file__).resolve().parents[2] / "dice-chrome-extension"
+EXTENSION_ZIP_NAME = "dice-chrome-extension.zip"
+
+@router.get("/dice/extension/download")
+@router.get("/api/dice/extension/download", include_in_schema=False)
+async def download_dice_extension():
+    """
+    Packages the Dice Session Sync Chrome extension folder into a zip on the fly,
+    so users can unzip it and load it via chrome://extensions -> "Load unpacked".
+    """
+    if not (EXTENSION_DIR / "manifest.json").is_file():
+        raise HTTPException(status_code=404, detail="Chrome extension bundle not found on server.")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in EXTENSION_DIR.rglob("*"):
+            if path.is_file():
+                # Nest under a top-level folder so unzipping yields one clean directory
+                zf.write(path, Path("dice-chrome-extension") / path.relative_to(EXTENSION_DIR))
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{EXTENSION_ZIP_NAME}"'},
+    )

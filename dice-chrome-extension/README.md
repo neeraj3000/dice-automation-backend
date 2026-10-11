@@ -1,4 +1,4 @@
-# Dice Account Session Sync — Chrome Extension
+# Apply2Hire – Dice Session Sync — Chrome Extension
 
 A lightweight, secure **Manifest V3** companion extension for the **Dice Job Application Automation** system.
 
@@ -26,10 +26,10 @@ A lightweight, secure **Manifest V3** companion extension for the **Dice Job App
 4. Click the **Load unpacked** button in the top-left toolbar.
 5. In the file picker, select the `dice-chrome-extension` directory:
    ```
-   c:\Users\Kalki\Documents\code\dice-automation-backend\dice-chrome-extension
+   <the folder you unzipped>/dice-chrome-extension
    ```
-6. The **Dice Account Session Sync** extension icon (⚄) will appear in your Chrome toolbar.
-   *(Tip: Click the puzzle piece icon in Chrome and click the Pin icon next to "Dice Account Session Sync" to keep it visible).*
+6. The **Apply2Hire – Dice Session Sync** extension icon (green "A") will appear in your Chrome toolbar.
+   *(Tip: Click the puzzle piece icon in Chrome and click the Pin icon next to "Apply2Hire – Dice Session Sync" to keep it visible).*
 
 ---
 
@@ -46,7 +46,7 @@ A lightweight, secure **Manifest V3** companion extension for the **Dice Job App
 
 ### Step 3: Synchronize with Backend
 
-1. Click the **Dice Session Sync** extension icon (⚄) in your Chrome toolbar.
+1. Click the **Apply2Hire** extension icon (green "A") in your Chrome toolbar.
 2. In the popup:
    - The status badge will show the current backend connection status.
    - If using a remote cloud backend (e.g. Render), click **⚙ Backend Connection Settings** and enter your backend URL (e.g., `https://your-app.onrender.com`), then click **Save Backend URL**. (Defaults to `http://localhost:8000` for local development).

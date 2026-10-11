@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Dice Account Session Sync",
+  "name": "Apply2Hire – Dice Session Sync",
   "version": "1.0.0",
-  "description": "Securely synchronizes your authenticated Dice.com session with your Dice Automation backend.",
+  "description": "Securely syncs your authenticated Dice.com session with Apply2Hire so it can search and apply for you.",
   "permissions": [
     "cookies",
     "storage",
@@ -17,7 +17,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Sync Dice Account",
+    "default_title": "Apply2Hire · Sync Dice Account",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
