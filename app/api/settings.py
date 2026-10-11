@@ -179,7 +179,7 @@ async def get_dashboard_stats(user: Optional[dict] = Depends(get_current_user_op
     jobs_matched = await db.jobs.count_documents({**u_match, "status": "MATCHED"})
     apps_count = await db.applications.count_documents(u_match)
     apps_ready = await db.applications.count_documents({**u_match, "status": "READY"})
-    apps_applied = await db.applications.count_documents({**u_match, "status": "APPLIED"})
+    apps_applied = await db.applications.count_documents({**u_match, "status": {"$in": ["APPLIED", "SUBMITTED"]}})
 
     # Applications belonging to user
     user_app_ids = await db.applications.distinct("_id", u_match)

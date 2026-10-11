@@ -20,6 +20,7 @@ from app.services.settings_service import settings_service
 from app.services.matching_service import matching_service, user_resume_filter
 from app.services.cloudinary_service import resume_file_for
 from app.services.jd_service import jd_service
+from app.services.execution_control import NOT_CANCELLED
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ class ApplicationRunner:
         try:
             if ObjectId.is_valid(app_id):
                 await self.apps_col.update_one(
-                    {"_id": ObjectId(app_id)},
+                    {"_id": ObjectId(app_id), **NOT_CANCELLED},
                     {"$set": {"status": status, "updated_at": datetime.now(timezone.utc)}}
                 )
         except Exception as e:
@@ -162,7 +163,10 @@ class ApplicationRunner:
             update_set["applied_at"] = applied_at
 
         if ObjectId.is_valid(app_id):
-            await self.apps_col.update_one({"_id": ObjectId(app_id)}, {"$set": update_set})
+            res = await self.apps_col.update_one({"_id": ObjectId(app_id), **NOT_CANCELLED}, {"$set": update_set})
+            if res.matched_count == 0:
+                # Stopped by the user (or deleted) — leave the CANCELLED record and job untouched
+                return
 
         # Update Job doc
         if job_id and ObjectId.is_valid(str(job_id)):
@@ -310,8 +314,10 @@ class ApplicationRunner:
                 await self._notify(status_callback, ApplicationState.STARTING, application_id)
                 await self._update_application_status_only(application_id, ApplicationState.STARTING)
 
-                # Step 2: Create/use isolated browser context
-                context = await playwright_manager.get_context(profile_id=user_id)
+                # Step 2: Create/use isolated browser context (page is tracked so the
+                # browser shuts down once the run is over)
+                page = await playwright_manager.get_new_page(profile_id=user_id)
+                context = page.context
 
                 # Step 3: Restore Dice session
                 restored = await restore_dice_session(context, dice_session)
@@ -319,7 +325,6 @@ class ApplicationRunner:
                     logger.warning(f"Could not restore full session credentials for profile: {user_id}")
 
                 # Step 4: Verify authentication
-                page = await context.new_page()
                 auth_res = await verify_dice_session(
                     browser_context=context,
                     session=dice_session,

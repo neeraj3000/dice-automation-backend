@@ -12,6 +12,7 @@ from app.services.matching_service import matching_service, user_resume_filter
 from app.services.cloudinary_service import resume_file_for
 from app.services.jd_service import jd_service
 from app.browser.application_browser import application_browser
+from app.services.execution_control import execution_control, NOT_CANCELLED
 
 def format_app_doc(doc: Dict[str, Any], questions: List[Dict[str, Any]] = None) -> ApplicationResponse:
     data = sanitize_object_ids(dict(doc))
@@ -77,7 +78,7 @@ def format_app_doc(doc: Dict[str, Any], questions: List[Dict[str, Any]] = None) 
 
     # Populate message and external_url
     if not data.get("message"):
-        data["message"] = data.get("failure_reason") or ("Application submitted." if data.get("status") == "APPLIED" else "")
+        data["message"] = data.get("failure_reason") or ("Application submitted." if data.get("status") in ("APPLIED", "SUBMITTED") else "")
     if not data.get("external_url"):
         data["external_url"] = None
 
@@ -163,6 +164,7 @@ class ApplicationService:
             "mode": req.mode or "PREPARE",
             "progress_steps": ["Application preparation started", f"Selected resume: {resume.get('display_name')}"],
             "failure_reason": "",
+            "cancel_requested": False,
             "updated_at": now
         }
 
@@ -178,7 +180,7 @@ class ApplicationService:
         from app.services.session_store import get_session_store
         from app.services.dice_session_restorer import has_required_auth_tokens
         store = get_session_store()
-        active_sess = await store.get_session("default")
+        active_sess = await store.get_session(target_uid) or await store.get_session("default")
         has_tokens = has_required_auth_tokens(active_sess)
         if not has_tokens:
             local_sess = settings_service.get_local_session()
@@ -187,7 +189,7 @@ class ApplicationService:
         if not has_tokens:
             fail_msg = "Dice login required. Please connect your Dice account using the Dice Sync Extension."
             await self.apps_col.update_one(
-                {"_id": app_id},
+                {"_id": app_id, **NOT_CANCELLED},
                 {"$set": {
                     "status": "LOGIN_REQUIRED",
                     "failure_reason": fail_msg,
@@ -209,12 +211,18 @@ class ApplicationService:
         # Run Browser automation
         user_profile = await settings_service.get_profile(user_id=target_uid)
         async with resume_file_for(resume) as resume_path:
-            browser_res = await application_browser.prepare_application(
-                application_url=app_data["application_url"],
-                resume_file_path=str(resume_path),
-                user_profile=user_profile,
-                mode=app_data["mode"]
+            cancelled, browser_res = await execution_control.run_cancellable(
+                str(app_id),
+                application_browser.prepare_application(
+                    application_url=app_data["application_url"],
+                    resume_file_path=str(resume_path),
+                    user_profile=user_profile,
+                    mode=app_data["mode"],
+                    user_id=target_uid
+                ),
             )
+        if cancelled:
+            return format_app_doc(await self.apps_col.find_one({"_id": app_id}), [])
 
         final_steps = app_data["progress_steps"] + browser_res["progress_steps"]
         update_fields = {
@@ -223,10 +231,16 @@ class ApplicationService:
             "failure_reason": browser_res.get("failure_reason") or "",
             "updated_at": datetime.now(timezone.utc)
         }
+        if browser_res["status"] in ["APPLIED", "SUBMITTED"]:
+            update_fields["applied_at"] = datetime.now(timezone.utc)
+
+        # Persist the outcome unless the user stopped the run in the meantime
+        res = await self.apps_col.update_one({"_id": app_id, **NOT_CANCELLED}, {"$set": update_fields})
+        if res.matched_count == 0:
+            return format_app_doc(await self.apps_col.find_one({"_id": app_id}), [])
 
         if browser_res["status"] in ["APPLIED", "SUBMITTED"]:
-            now_ts = datetime.now(timezone.utc)
-            update_fields["applied_at"] = now_ts
+            now_ts = update_fields["applied_at"]
             await self.jobs_col.update_one(
                 {"_id": job["_id"]},
                 {"$set": {"status": "APPLIED", "applied_at": now_ts, "failure_reason": None}}
@@ -266,7 +280,6 @@ class ApplicationService:
                 q_doc["_id"] = insert_q.inserted_id
                 pending_qs.append(q_doc)
 
-        await self.apps_col.update_one({"_id": app_id}, {"$set": update_fields})
         saved_app = await self.apps_col.find_one({"_id": app_id})
         return format_app_doc(saved_app, pending_qs)
 
@@ -306,7 +319,7 @@ class ApplicationService:
             raise HTTPException(status_code=404, detail="Application not found")
 
         # Submission protection: allow submitting if READY, REVIEW, PREPARE, FAILED, or re-submitting APPLIED
-        if app_doc["status"] not in ["READY", "REVIEW", "PREPARE", "FAILED", "APPLIED", "APPLYING"]:
+        if app_doc["status"] not in ["READY", "REVIEW", "PREPARE", "FAILED", "APPLIED", "APPLYING", "CANCELLED"]:
             raise HTTPException(status_code=400, detail=f"Cannot submit application in '{app_doc['status']}' status")
 
         # Fetch associated resume and user profile
@@ -326,7 +339,8 @@ class ApplicationService:
         from app.services.session_store import get_session_store
         from app.services.dice_session_restorer import has_required_auth_tokens
         store = get_session_store()
-        active_sess = await store.get_session("default")
+        session_uid = str(app_doc.get("user_id") or "default")
+        active_sess = await store.get_session(session_uid) or await store.get_session("default")
         has_tokens = has_required_auth_tokens(active_sess)
         if not has_tokens:
             local_sess = settings_service.get_local_session()
@@ -354,16 +368,22 @@ class ApplicationService:
         # Update to APPLYING while in-flight
         await self.apps_col.update_one(
             {"_id": ObjectId(app_id)},
-            {"$set": {"status": "APPLYING", "progress_steps": steps, "updated_at": now}}
+            {"$set": {"status": "APPLYING", "progress_steps": steps, "cancel_requested": False, "updated_at": now}}
         )
 
         # Run real browser submission
         async with resume_file_for(resume) as resume_path:
-            browser_res = await application_browser.submit_application_to_dice(
-                application_url=app_doc["application_url"],
-                resume_file_path=str(resume_path),
-                user_profile=user_profile
+            cancelled, browser_res = await execution_control.run_cancellable(
+                app_id,
+                application_browser.submit_application_to_dice(
+                    application_url=app_doc["application_url"],
+                    resume_file_path=str(resume_path),
+                    user_profile=user_profile,
+                    user_id=target_uid
+                ),
             )
+        if cancelled:
+            return format_app_doc(await self.apps_col.find_one({"_id": ObjectId(app_id)}), [])
 
         final_steps = steps + browser_res.get("progress_steps", [])
         final_status = browser_res["status"]
@@ -376,7 +396,7 @@ class ApplicationService:
             "updated_at": datetime.now(timezone.utc)
         }
 
-        if final_status == "APPLIED":
+        if final_status in ("APPLIED", "SUBMITTED"):
             update_fields["applied_at"] = datetime.now(timezone.utc)
             # Update job status as well
             if ObjectId.is_valid(app_doc.get("job_id")):
@@ -413,10 +433,12 @@ class ApplicationService:
                 pending_qs.append(q_doc)
 
         updated = await self.apps_col.find_one_and_update(
-            {"_id": ObjectId(app_id)},
+            {"_id": ObjectId(app_id), **NOT_CANCELLED},
             {"$set": update_fields},
             return_document=True
         )
+        if not updated:
+            return format_app_doc(await self.apps_col.find_one({"_id": ObjectId(app_id)}), [])
         return format_app_doc(updated, pending_qs)
 
     async def get_review_queue(self, user_id: Optional[Any] = None) -> List[ReviewItem]:

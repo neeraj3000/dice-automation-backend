@@ -47,6 +47,25 @@ async def connect_db():
     except Exception:
         pass
 
+    # application_answers holds pending-question docs (application_id, no user_id/key).
+    # A legacy unique index on (user_id, key) made every such doc collide on {null, null},
+    # so restrict it to docs that actually carry a key.
+    try:
+        answers_col = db_instance.db.application_answers
+        indexes = await answers_col.index_information()
+        legacy = indexes.get("user_id_1_key_1")
+        if legacy and legacy.get("unique") and not legacy.get("partialFilterExpression"):
+            await answers_col.drop_index("user_id_1_key_1")
+        await answers_col.create_index(
+            [("user_id", 1), ("key", 1)],
+            name="user_id_1_key_1",
+            unique=True,
+            partialFilterExpression={"key": {"$exists": True}},
+        )
+        await answers_col.create_index([("application_id", 1), ("is_answered", 1)])
+    except Exception as e:
+        print(f"[DB] Failed to ensure application_answers indexes: {e}")
+
     # Multi-tenant Auth indexes
     try:
         users_col = db_instance.db.users

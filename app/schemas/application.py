@@ -20,6 +20,9 @@ class ApplicationState:
     CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
     TIMEOUT = "TIMEOUT"
 
+    # Stopped by the user
+    CANCELLED = "CANCELLED"
+
     # Legacy compatibility states
     DISCOVERED = "DISCOVERED"
     MATCHED = "MATCHED"
@@ -28,6 +31,12 @@ class ApplicationState:
     APPLYING = "APPLYING"
     APPLIED = "APPLIED"
     SKIPPED = "SKIPPED"
+
+    # States in which an automation is queued or executing and can be stopped
+    ACTIVE = (
+        QUEUED, STARTING, OPENING_JOB, FILLING_APPLICATION,
+        UPLOADING_RESUME, SUBMITTING, APPLYING, "PREPARING", "PREPARE",
+    )
 
 
 class ApplicationAnswerSchema(BaseModel):

@@ -5,11 +5,16 @@ import json
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Set
 from playwright.async_api import async_playwright, Playwright, BrowserContext, Page
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Seconds a profile's browser may stay open after its last automation page closes.
+# Chromium usually exits by itself when its last tab closes; this catches windows kept
+# alive by leftover tabs (e.g. popups opened during a run).
+IDLE_CLOSE_SECONDS = float(os.environ.get("BROWSER_IDLE_CLOSE_SECONDS", "5"))
 
 class PlaywrightManager:
     """
@@ -33,6 +38,9 @@ class PlaywrightManager:
         self._lock: Optional[asyncio.Lock] = None
         self._install_lock: Optional[asyncio.Lock] = None
         self._profile_locks: Dict[str, asyncio.Lock] = {}
+        # Pages handed out by get_new_page() and still in use, per profile
+        self._leased: Dict[str, Set[Page]] = {}
+        self._idle_close_tasks: Dict[str, asyncio.Task] = {}
 
     def _ensure_loop_and_locks(self):
         """Ensures that asyncio locks and driver references are bound to the currently running event loop."""
@@ -46,6 +54,8 @@ class PlaywrightManager:
             self._lock = asyncio.Lock()
             self._install_lock = asyncio.Lock()
             self._profile_locks.clear()
+            self._leased.clear()
+            self._idle_close_tasks.clear()
             self._contexts.clear()
             self._context_headless.clear()
             self.playwright = None
@@ -313,6 +323,8 @@ class PlaywrightManager:
         self._ensure_loop_and_locks()
         profile_lock = self._get_profile_lock(profile_id)
         async with profile_lock:
+            self._cancel_idle_close(profile_id)
+
             # 1. Determine target headless mode
             if headless is not None:
                 target_headless = headless
@@ -450,6 +462,8 @@ class PlaywrightManager:
 
             self._contexts[profile_id] = ctx
             self._context_headless[profile_id] = target_headless
+            self._leased[profile_id] = set()
+            ctx.on("close", lambda _: self._on_context_closed(profile_id, ctx))
 
             # 7. Restore authenticated session state for profile context via SessionStore & restore_dice_session
             if restore_session:
@@ -491,18 +505,67 @@ class PlaywrightManager:
                             await old_p.close()
                         except Exception:
                             pass
-                return await context.new_page()
+                # Reuse the blank tab Chromium opens at launch instead of adding a second one
+                leased = self._leased.setdefault(profile_id, set())
+                page = next(
+                    (p for p in context.pages if not p.is_closed() and p not in leased and p.url == "about:blank"),
+                    None,
+                ) or await context.new_page()
+                leased.add(page)
+                page.on("close", lambda _: self._on_page_closed(profile_id, page))
+                return page
             except Exception as e:
                 logger.warning(f"Failed to create new page for profile '{profile_id}' on attempt {attempt + 1}: {e}. Resetting context...")
                 await self.close_context(profile_id)
                 if attempt == 1:
                     raise
 
+    # ----- Idle browser shutdown -------------------------------------------------
+
+    def _has_active_pages(self, profile_id: str) -> bool:
+        return any(not p.is_closed() for p in self._leased.get(profile_id, ()))
+
+    def _cancel_idle_close(self, profile_id: str):
+        task = self._idle_close_tasks.pop(profile_id, None)
+        if task and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+
+    def _on_page_closed(self, profile_id: str, page: Page):
+        leased = self._leased.get(profile_id)
+        if leased is not None:
+            leased.discard(page)
+        if not self._has_active_pages(profile_id) and profile_id in self._contexts:
+            self._cancel_idle_close(profile_id)
+            self._idle_close_tasks[profile_id] = asyncio.create_task(self._close_when_idle(profile_id))
+
+    def _on_context_closed(self, profile_id: str, ctx: BrowserContext):
+        # Closed externally (window closed by the user, crash): drop the stale handle
+        if self._contexts.get(profile_id) is ctx:
+            self._contexts.pop(profile_id, None)
+            self._context_headless.pop(profile_id, None)
+            self._leased.pop(profile_id, None)
+
+    async def _close_when_idle(self, profile_id: str):
+        try:
+            await asyncio.sleep(IDLE_CLOSE_SECONDS)
+            async with self._get_profile_lock(profile_id):
+                if self._has_active_pages(profile_id):
+                    return
+                logger.info(f"Closing idle browser for profile '{profile_id}'")
+                await self.close_context(profile_id)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if self._idle_close_tasks.get(profile_id) is asyncio.current_task():
+                self._idle_close_tasks.pop(profile_id, None)
+
     async def close_context(self, profile_id: str):
         """Closes a specific profile context and unlinks lockfiles."""
         self._ensure_loop_and_locks()
+        self._cancel_idle_close(profile_id)
         ctx = self._contexts.pop(profile_id, None)
         self._context_headless.pop(profile_id, None)
+        self._leased.pop(profile_id, None)
         if ctx:
             try:
                 await ctx.close()
@@ -515,6 +578,10 @@ class PlaywrightManager:
         """Closes all active profile contexts and stops Playwright."""
         self._ensure_loop_and_locks()
         async with self._lock:
+            for task in self._idle_close_tasks.values():
+                task.cancel()
+            self._idle_close_tasks.clear()
+            self._leased.clear()
             for profile_id, ctx in list(self._contexts.items()):
                 try:
                     await ctx.close()

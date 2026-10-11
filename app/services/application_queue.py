@@ -10,6 +10,7 @@ from app.services.application_runner import application_runner
 from app.services.settings_service import settings_service
 from app.services.matching_service import matching_service, user_resume_filter
 from app.services.jd_service import jd_service
+from app.services.execution_control import execution_control
 
 logger = logging.getLogger(__name__)
 
@@ -62,15 +63,31 @@ class ApplicationQueueManager:
                 mode = item.get("mode", "APPLY")
                 max_retries = item.get("max_retries", 2)
 
-                self._active_application_id = app_id
-                logger.info(f"Processing application from queue: {app_id} (user={user_id})")
-
                 try:
-                    await application_runner.run_application(
-                        application_id=app_id,
-                        user_id=user_id,
-                        mode=mode,
-                        max_retries=max_retries
+                    # Skip items stopped while waiting in the queue
+                    pending = await self.apps_col.find_one(
+                        {
+                            "_id": ObjectId(app_id),
+                            "status": {"$in": [ApplicationState.QUEUED, ApplicationState.STARTING]},
+                            "cancel_requested": {"$ne": True},
+                        },
+                        {"_id": 1},
+                    )
+                    if not pending:
+                        logger.info(f"Skipping application {app_id}: no longer pending (stopped or already handled).")
+                        continue
+
+                    self._active_application_id = app_id
+                    logger.info(f"Processing application from queue: {app_id} (user={user_id})")
+
+                    await execution_control.run_cancellable(
+                        app_id,
+                        application_runner.run_application(
+                            application_id=app_id,
+                            user_id=user_id,
+                            mode=mode,
+                            max_retries=max_retries
+                        ),
                     )
                 except Exception as ex:
                     logger.error(f"Error running application {app_id} in queue: {ex}", exc_info=True)
@@ -111,6 +128,7 @@ class ApplicationQueueManager:
                 "max_retries": max_retries,
                 "retry_count": 0,
                 "failure_reason": "",
+                "cancel_requested": False,
                 "updated_at": now
             }}
         )
@@ -213,6 +231,7 @@ class ApplicationQueueManager:
             "failure_reason": "",
             "retry_count": 0,
             "max_retries": max_retries,
+            "cancel_requested": False,
             "updated_at": now
         }
 
@@ -261,6 +280,59 @@ class ApplicationQueueManager:
                 results.append({"job_id": jid, "error": str(e)})
         return results
 
+    async def cancel_application(self, application_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Stops a queued or running application. The status flip is atomic and conditional on
+        the application still being active, so it cannot clobber a run that already finished.
+        Returns None if the application does not exist (or is not owned by user_id).
+        Raises ValueError if it is not in a stoppable state.
+        """
+        if not ObjectId.is_valid(application_id):
+            raise ValueError(f"Invalid application ID: {application_id}")
+
+        query: Dict[str, Any] = {"_id": ObjectId(application_id)}
+        if user_id:
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            query["user_id"] = {"$in": u_oids + [str(user_id)]}
+
+        now = datetime.now(timezone.utc)
+        reason = "Stopped by user"
+        doc = await self.apps_col.find_one_and_update(
+            {**query, "status": {"$in": list(ApplicationState.ACTIVE)}},
+            {
+                "$set": {
+                    "status": ApplicationState.CANCELLED,
+                    "cancel_requested": True,
+                    "failure_reason": reason,
+                    "message": reason,
+                    "updated_at": now,
+                },
+                "$push": {"progress_steps": f"Automation stopped by user at {now.strftime('%H:%M:%S')} UTC"},
+            },
+            projection={"job_id": 1},
+        )
+
+        if not doc:
+            existing = await self.apps_col.find_one(query, {"status": 1})
+            if not existing:
+                return None
+            if existing.get("status") == ApplicationState.CANCELLED:
+                return {"application_id": application_id, "status": ApplicationState.CANCELLED, "stopped": False}
+            raise ValueError(f"Application is not running (status: {existing.get('status')}).")
+
+        # Immediate stop if this process owns the run; other processes pick up the DB flag.
+        was_running_here = execution_control.cancel_local(application_id)
+
+        # Release the job so it can be applied to again
+        if doc.get("job_id"):
+            await self.jobs_col.update_one(
+                {"_id": doc["job_id"], "status": {"$nin": ["APPLIED"]}},
+                {"$set": {"status": "MATCHED", "failure_reason": None, "updated_at": now}},
+            )
+
+        logger.info(f"Application {application_id} stopped by user (running_here={was_running_here}).")
+        return {"application_id": application_id, "status": ApplicationState.CANCELLED, "stopped": True}
+
     async def get_queue_status(self) -> Dict[str, Any]:
         """Returns current operational status of the queue and aggregated counts from MongoDB."""
         counts = {}
@@ -277,7 +349,8 @@ class ApplicationQueueManager:
             ApplicationState.LOGIN_REQUIRED,
             ApplicationState.EXTERNAL_PORTAL,
             ApplicationState.CAPTCHA_REQUIRED,
-            ApplicationState.TIMEOUT
+            ApplicationState.TIMEOUT,
+            ApplicationState.CANCELLED
         ]
         for s in all_states:
             try:

@@ -167,7 +167,8 @@ def is_jwt_token_expired(jwt_token: str) -> Optional[bool]:
 
 async def restore_dice_session(
     browser_context: Any,
-    session: Any
+    session: Any,
+    include_local_storage: bool = True
 ) -> bool:
     """
     Restores only the authentication state actually required by the existing Dice implementation:
@@ -203,8 +204,9 @@ async def restore_dice_session(
                     seen_keys.add(dedup_key)
                     auth_cookies.append(clean)
 
-    # 2. Filter Cognito / auth localStorage
-    auth_ls = filter_cognito_local_storage(ls)
+    # 2. Filter Cognito / auth localStorage (skipped on refreshes of a long-lived context,
+    # since add_init_script registrations accumulate and cannot be removed)
+    auth_ls = filter_cognito_local_storage(ls) if include_local_storage else {}
 
     # 3. Check fallback identity field
     identity = getattr(session, "identity", None) or (session.get("identity") if isinstance(session, dict) else None)

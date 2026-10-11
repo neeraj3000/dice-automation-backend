@@ -95,6 +95,20 @@ async def retry_application(app_id: str):
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
 
+@router.post("/{app_id}/stop")
+async def stop_application(app_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
+    """Stops a queued or running application and halts its browser automation."""
+    try:
+        res = await application_queue_manager.cancel_application(
+            application_id=app_id,
+            user_id=str(user["_id"]) if user else None
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=409, detail=str(ve))
+    if not res:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return res
+
 @router.get("/{app_id}", response_model=ApplicationResponse)
 async def get_application(app_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
     user_id = user["_id"] if user else None

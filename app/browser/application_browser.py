@@ -130,6 +130,58 @@ class ApplicationBrowser:
             logger.debug(f"Error checking login wall: {e}")
         return False
 
+    async def _is_already_applied(self, page) -> bool:
+        """
+        Dice marks a job the candidate has applied to by rendering the apply button
+        as a disabled button labelled "Applied" (or a dedicated applied badge).
+        """
+        try:
+            applied = page.locator(
+                '[data-testid="apply-button"]:has-text("Applied"), '
+                '#applied-label, [data-testid="applied-button"], [data-testid*="applied-badge"], '
+                'button:text-is("Applied")'
+            ).first
+            return await applied.count() > 0 and await applied.is_visible()
+        except Exception as e:
+            logger.debug(f"Applied-state check notice: {e}")
+        return False
+
+    async def _verify_applied_on_job_page(self, page, job_url: str) -> bool:
+        """Reopens the job detail page and checks whether Dice now shows it as applied."""
+        try:
+            await page.goto(job_url, wait_until="domcontentloaded", timeout=30000)
+            try:
+                await page.wait_for_selector('[data-testid="apply-button"], #applied-label', state="visible", timeout=10000)
+            except Exception:
+                pass
+            return await self._is_already_applied(page)
+        except Exception as e:
+            logger.debug(f"Could not re-verify applied state on job page: {e}")
+        return False
+
+    async def _refresh_session_cookies(self, context, user_id: Optional[str], profile_id: str) -> bool:
+        """
+        Re-injects the most recently synced Dice auth cookies into a (possibly long-lived)
+        browser context, so a session synced via the extension after the context was created
+        is picked up instead of the stale cookies the context started with.
+        """
+        try:
+            from app.services.session_store import get_session_store
+            from app.services.dice_session_restorer import restore_dice_session, has_required_auth_tokens
+            store = get_session_store()
+            for uid in dict.fromkeys(u for u in (user_id, profile_id, "default") if u):
+                sess = await store.get_session(uid)
+                if has_required_auth_tokens(sess):
+                    return await restore_dice_session(context, sess, include_local_storage=False)
+
+            from app.services.settings_service import settings_service
+            local_sess = settings_service.get_local_session()
+            if has_required_auth_tokens(local_sess):
+                return await restore_dice_session(context, local_sess, include_local_storage=False)
+        except Exception as e:
+            logger.debug(f"Could not refresh Dice session cookies: {e}")
+        return False
+
     async def _handle_login_required(self, progress_steps: List[str]) -> Dict[str, Any]:
         """Soft-invalidates the session and returns LOGIN_REQUIRED status."""
         progress_steps.append("Dice sign-in required. Marking session disconnected.")
@@ -163,7 +215,8 @@ class ApplicationBrowser:
         page: Optional[Any] = None,
         profile_id: str = "default",
         status_callback: Optional[Any] = None,
-        should_close_page: Optional[bool] = None
+        should_close_page: Optional[bool] = None,
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Automates navigating to the Dice job application, filling personal info,
@@ -192,6 +245,8 @@ class ApplicationBrowser:
                     "unanswered_questions": [],
                     "failure_reason": None
                 }
+
+            await self._refresh_session_cookies(page.context, user_id, profile_id)
 
             logger.info(f"Navigating to Dice Application: {target_url}")
             progress_steps.append(f"Navigating to job page: {target_url}")
@@ -224,9 +279,19 @@ class ApplicationBrowser:
                     "unanswered_questions": []
                 }
 
-            # Check for Dice login prompt immediately upon loading target URL
+            # Check for Dice login prompt immediately upon loading target URL.
+            # Retry once with the latest synced session before giving up.
             if await self._detect_login_wall(page):
-                return await self._handle_login_required(progress_steps)
+                progress_steps.append("Dice sign-in prompt detected. Reloading latest synced session and retrying...")
+                if await self._refresh_session_cookies(page.context, user_id, profile_id):
+                    try:
+                        await page.goto(target_url, wait_until="domcontentloaded", timeout=35000)
+                        await page.wait_for_timeout(3000)
+                    except Exception as e:
+                        logger.debug(f"Reload after session refresh failed: {e}")
+                if await self._detect_login_wall(page):
+                    return await self._handle_login_required(progress_steps)
+                progress_steps.append("Signed in with refreshed session.")
 
             # Check for external employer portal immediately
             if self._is_external_portal(page.url):
@@ -254,6 +319,18 @@ class ApplicationBrowser:
                     )
                 except Exception:
                     pass
+
+                # Dice renders an applied job's apply button as a disabled "Applied" button.
+                # Detect that first, otherwise it would be matched (and clicked) as the Apply button.
+                if await self._is_already_applied(page):
+                    progress_steps.append("Job is verified as already applied on Dice")
+                    return {
+                        "success": True,
+                        "status": "SUBMITTED",
+                        "progress_steps": progress_steps,
+                        "unanswered_questions": [],
+                        "failure_reason": None
+                    }
 
                 # Find active Apply button on job detail page
                 apply_btn = page.locator(
@@ -299,6 +376,35 @@ class ApplicationBrowser:
                         pass
 
                 if has_apply_btn:
+                    # Don't block on a disabled button (Playwright would retry the click for 30s)
+                    try:
+                        await apply_btn.wait_for(state="visible", timeout=1000)
+                        for _ in range(10):
+                            if await apply_btn.is_enabled():
+                                break
+                            await page.wait_for_timeout(500)
+                        btn_enabled = await apply_btn.is_enabled()
+                    except Exception:
+                        btn_enabled = False
+                    if not btn_enabled:
+                        if await self._is_already_applied(page):
+                            progress_steps.append("Job is verified as already applied on Dice")
+                            return {
+                                "success": True,
+                                "status": "SUBMITTED",
+                                "progress_steps": progress_steps,
+                                "unanswered_questions": [],
+                                "failure_reason": None
+                            }
+                        progress_steps.append("Apply button is disabled on Dice")
+                        return {
+                            "success": False,
+                            "status": "FAILED",
+                            "progress_steps": progress_steps,
+                            "failure_reason": "The Apply button on Dice is disabled for this job. It may be closed or no longer accepting applications.",
+                            "unanswered_questions": []
+                        }
+
                     btn_text = "Apply"
                     try:
                         btn_text = (await apply_btn.inner_text()).strip() or "Apply"
@@ -322,6 +428,8 @@ class ApplicationBrowser:
                                 await page.wait_for_timeout(3000)
                     except Exception as ex:
                         logger.warning(f"Apply button transition notice: {ex}")
+                        if page.is_closed():
+                            raise
                         await page.wait_for_timeout(3000)
 
                 # Track active page if popup opened
@@ -391,19 +499,10 @@ class ApplicationBrowser:
                         await submit_btn.click()
                         await page.wait_for_timeout(5000)
 
-                        # Verify submission confirmation
-                        is_confirmed = await self._verify_submission_confirmation(page)
-                        if is_confirmed:
-                            progress_steps.append("Verified application submission confirmation on Dice!")
-                            await _notify_status(status_callback, "SUBMITTED")
-                            return {
-                                "success": True,
-                                "status": "SUBMITTED",
-                                "progress_steps": progress_steps,
-                                "unanswered_questions": [],
-                                "failure_reason": None
-                            }
-                        else:
+                        # Page-level confirmation (text/URL heuristics) is only a hint; it has
+                        # produced false positives, so the job page is the source of truth.
+                        page_confirmed = await self._verify_submission_confirmation(page)
+                        if not page_confirmed:
                             # Check if submission was blocked by validation errors
                             blocking_errors = await self._scan_validation_errors(page)
                             if blocking_errors:
@@ -417,28 +516,40 @@ class ApplicationBrowser:
                                     "failure_reason": None
                                 }
 
-                            # Double-check confirmation URL
-                            curr_url = page.url.lower()
-                            if any(k in curr_url for k in ["/applied", "/confirmation", "status=applied", "/success"]):
-                                progress_steps.append("Verified application submission via confirmation URL on Dice!")
-                                await _notify_status(status_callback, "SUBMITTED")
-                                return {
-                                    "success": True,
-                                    "status": "SUBMITTED",
-                                    "progress_steps": progress_steps,
-                                    "unanswered_questions": [],
-                                    "failure_reason": None
-                                }
+                        # The reliable signal: the job detail page now shows the disabled "Applied" button.
+                        # Dice can take a moment to reflect it, so check twice.
+                        is_job_page = "/job-detail/" in target_url.lower()
+                        verified = False
+                        if is_job_page:
+                            for attempt in range(2):
+                                if attempt:
+                                    await page.wait_for_timeout(5000)
+                                if await self._verify_applied_on_job_page(page, target_url):
+                                    verified = True
+                                    break
+                        else:
+                            verified = page_confirmed
 
-                            # If neither confirmed nor errored, return REVIEW rather than false APPLIED
-                            progress_steps.append("Submit button was clicked; awaiting confirmation verification")
+                        if verified:
+                            progress_steps.append("Verified on Dice: job now shows as Applied")
+                            await _notify_status(status_callback, "SUBMITTED")
                             return {
-                                "success": False,
-                                "status": "REVIEW",
+                                "success": True,
+                                "status": "SUBMITTED",
                                 "progress_steps": progress_steps,
                                 "unanswered_questions": [],
-                                "failure_reason": "Application was submitted but Dice confirmation could not be verified. Please check your Dice account."
+                                "failure_reason": None
                             }
+
+                        # Neither verified nor blocked: don't claim success
+                        progress_steps.append("Submit button was clicked, but Dice does not show the job as Applied yet")
+                        return {
+                            "success": False,
+                            "status": "REVIEW",
+                            "progress_steps": progress_steps,
+                            "unanswered_questions": [],
+                            "failure_reason": "Submit was clicked but Dice does not show this job as Applied. Please check your Dice account, then retry."
+                        }
 
                 # B. Fill Personal Info
                 await _notify_status(status_callback, "FILLING_APPLICATION")
@@ -484,6 +595,20 @@ class ApplicationBrowser:
                     # No next button and no submit button found
                     break
 
+            # In APPLY mode the wizard may have submitted via a differently-labelled final button;
+            # check Dice before asking the user to submit again.
+            if mode != "PREPARE" and "/job-detail/" in target_url.lower():
+                if await self._verify_applied_on_job_page(page, target_url):
+                    progress_steps.append("Verified on Dice: job now shows as Applied")
+                    await _notify_status(status_callback, "SUBMITTED")
+                    return {
+                        "success": True,
+                        "status": "SUBMITTED",
+                        "progress_steps": progress_steps,
+                        "unanswered_questions": [],
+                        "failure_reason": None
+                    }
+
             # If loop finished without errors
             progress_steps.append("Application form prepared and ready for review")
             return {
@@ -518,7 +643,8 @@ class ApplicationBrowser:
         user_profile: UserProfileSchema,
         page: Optional[Any] = None,
         profile_id: str = "default",
-        status_callback: Optional[Any] = None
+        status_callback: Optional[Any] = None,
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Directly executes the application submission on Dice in APPLY mode.
@@ -530,7 +656,8 @@ class ApplicationBrowser:
             mode="APPLY",
             page=page,
             profile_id=profile_id,
-            status_callback=status_callback
+            status_callback=status_callback,
+            user_id=user_id
         )
 
     async def _fill_personal_info(self, page, user_profile: UserProfileSchema) -> List[str]:
