@@ -12,6 +12,15 @@ from app.services.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
 
+
+def user_resume_filter(user_id: Optional[Any]) -> Optional[Dict[str, Any]]:
+    """Mongo filter for resumes owned by user_id (stored as ObjectId or str); None if no real user."""
+    if not user_id or str(user_id) == "default":
+        return None
+    u_oids = [ObjectId(str(user_id))] if ObjectId.is_valid(str(user_id)) else []
+    return {"user_id": {"$in": u_oids + [str(user_id)]}}
+
+
 class MatchingService:
     @property
     def resumes_col(self):
@@ -24,18 +33,11 @@ class MatchingService:
     async def match_job_against_all_resumes(
         self, jd: JDStructuredData, job_id: Optional[str] = None, user_id: Optional[str] = None
     ) -> JobMatchResult:
-        # 1. Fetch user-specific resumes from MongoDB
-        from bson import ObjectId
-        query = {}
-        if user_id and user_id != "default":
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            user_q = {"user_id": {"": u_oids + [str(user_id)]}}
-            user_count = await self.resumes_col.count_documents(user_q)
-            if user_count > 0:
-                query = user_q
-        cursor = self.resumes_col.find(query)
+        # 1. Fetch ONLY this user's resumes. Never fall back to other users' libraries.
         resumes: List[Dict[str, Any]] = []
-        async for doc in cursor:
+        query = user_resume_filter(user_id)
+        docs = [d async for d in self.resumes_col.find(query)] if query else []
+        for doc in docs:
             file_name = doc.get("file_name", "")
             raw_display = doc.get("display_name", "") or file_name
             # Provide full descriptive identifier so user knows exactly which profile was picked
@@ -109,10 +111,13 @@ CRITICAL RULES:
                 result = response.choices[0].message.parsed
                 # Strictly enforce complete resume name and filename from database
                 matched_resume = next((r for r in resumes if r["id"] == result.recommended_resume_id), None)
-                if matched_resume:
-                    result.recommended_resume_name = matched_resume["display_name"]
-                    result.recommended_resume_file_name = matched_resume.get("file_name", "")
+                if not matched_resume:
+                    raise ValueError(f"LLM picked resume {result.recommended_resume_id!r} outside the user's library")
+                result.recommended_resume_name = matched_resume["display_name"]
+                result.recommended_resume_file_name = matched_resume.get("file_name", "")
 
+                owned_ids = {r["id"] for r in resumes}
+                result.alternatives = [a for a in result.alternatives if a.resume_id in owned_ids]
                 for alt in result.alternatives:
                     alt_resume = next((r for r in resumes if r["id"] == alt.resume_id), None)
                     if alt_resume:

@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://127.0.0.1:27017"
     DATABASE_NAME: Optional[str] = None
     MONGODB_DB: Optional[str] = None
-    RESUMES_DIR: Path = Path(__file__).resolve().parent.parent / "resumes"
     DATA_DIR: Path = Path(__file__).resolve().parent.parent / "data"
 
     # Browser infrastructure configuration
@@ -135,7 +134,6 @@ if os.environ.get("RENDER") and "BROWSER_MODE" not in os.environ:
     settings.BROWSER_MODE = "server"
 
 # Ensure directories exist
-settings.RESUMES_DIR.mkdir(parents=True, exist_ok=True)
 settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
 settings.BROWSER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 settings.TEMP_RESUMES_DIR.mkdir(parents=True, exist_ok=True)

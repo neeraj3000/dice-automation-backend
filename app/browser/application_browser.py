@@ -358,10 +358,8 @@ class ApplicationBrowser:
                         }]
                     }
 
-            # Resolve full resume path
-            full_resume_path = settings.RESUMES_DIR / Path(resume_file_path).name
-            if not full_resume_path.exists():
-                full_resume_path = settings.RESUMES_DIR.parent / resume_file_path
+            # Temp file downloaded from Cloudinary by the caller (deleted after this run)
+            full_resume_path = Path(resume_file_path)
 
             # Multi-Step Wizard Loop (support up to 6 steps)
             max_steps = 6

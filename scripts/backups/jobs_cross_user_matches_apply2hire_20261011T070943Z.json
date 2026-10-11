@@ -1,0 +1,2445 @@
+[
+ {
+  "_id": {
+   "$oid": "6ac7fd55fd5871b120962eaa"
+  },
+  "external_job_id": "48d97a74-cd22-4519-8e36-0d74f3ee1cb9",
+  "title": "Senior Azure Data Engineer",
+  "company": "Tech Company",
+  "location": "Remote or Almont, Colorado",
+  "work_setting": "Remote",
+  "salary": "",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/48d97a74-cd22-4519-8e36-0d74f3ee1cb9",
+  "application_url": "https://www.dice.com/job-detail/48d97a74-cd22-4519-8e36-0d74f3ee1cb9",
+  "application_wizard_url": "https://www.dice.com/job-applications/48d97a74-cd22-4519-8e36-0d74f3ee1cb9/wizard",
+  "description_raw": "Title: Senior Azure Data Engineer at Tech Company. Location: Remote or Almont, Colorado (Remote). Employment Type: Contract. Salary: . Posted: Today. Summary: Eliassen Group Senior Azure Data Engineer Remote or Almont, Colorado \u2022 Today Description: Remote As a Senior Azure Data Engineer, you will help modernize an enterprise data platform by migrating data and workloads from an on-premises Oracle data warehouse and IBM DataStage environment to a cloud-based Azure data lake architecture. You will design, build, and optimize scalable data pipelines using Azure Databricks and Azure Data Factory. This role requires someone who can contribute directly to d",
+  "search_profile_id": {
+   "$oid": "6ac7a4e8b58fd79ede4834dc"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-08T20:30:13.125Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-08T20:30:49.807Z"
+  },
+  "match_result": {
+   "job_id": "6ac7fd55fd5871b120962eaa",
+   "recommended_resume_id": "6ac79eb6c2080d267cf1bb46",
+   "recommended_resume_name": "Veera Sekhar (Veera-AzureDataEngineer_20261008_191622.docx)",
+   "recommended_resume_file_name": "Veera-AzureDataEngineer_20261008_191622.docx",
+   "match_percentage": 90,
+   "matched_skills": [
+    "Azure Data Factory",
+    "Databricks",
+    "cloud migration",
+    "data governance"
+   ],
+   "partial_matches": [
+    "Azure AI",
+    "Data Engineering",
+    "Intelligent Automation",
+    "Azure Synapse",
+    "Delta Lake",
+    "Power BI"
+   ],
+   "missing_skills": [
+    "data migration",
+    "data pipeline design",
+    "cloud-based architecture"
+   ],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in Azure Data Engineering, particularly with Azure Data Factory and Databricks, which are critical for the Senior Azure Data Engineer role. His background in cloud migration and data governance aligns well with the job responsibilities, making him a strong candidate despite some missing skills.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e96c2080d267cf1bb3e",
+     "display_name": "Veera Sekhar (Veera-AIMLDataArchitect_20261008_191555.docx)",
+     "file_name": "Veera-AIMLDataArchitect_20261008_191555.docx",
+     "match_percentage": 85
+    },
+    {
+     "resume_id": "6ac79ea0c2080d267cf1bb41",
+     "display_name": "Veera Sekhar (Veera-AzureCloudArchitect_20261008_191605.docx)",
+     "file_name": "Veera-AzureCloudArchitect_20261008_191605.docx",
+     "match_percentage": 80
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-08T20:30:49.779Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6ac7fd55fd5871b120962eab"
+  },
+  "external_job_id": "14c9ad0f-4cbf-4831-a415-982fdb076cc1",
+  "title": "Azure Data Engineer",
+  "company": "Tech Company",
+  "location": "Remote or Almont, Colorado",
+  "work_setting": "Remote",
+  "salary": "",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/14c9ad0f-4cbf-4831-a415-982fdb076cc1",
+  "application_url": "https://www.dice.com/job-detail/14c9ad0f-4cbf-4831-a415-982fdb076cc1",
+  "application_wizard_url": "https://www.dice.com/job-applications/14c9ad0f-4cbf-4831-a415-982fdb076cc1/wizard",
+  "description_raw": "Title: Azure Data Engineer at Tech Company. Location: Remote or Almont, Colorado (Remote). Employment Type: Contract. Salary: . Posted: Today. Summary: Eliassen Group Azure Data Engineer Remote or Almont, Colorado \u2022 Today Description: Remote in either Remote or MN or ND or SD or WI or IA Our client seeks an Azure Data Engineer to modernize an enterprise data platform by migrating data and workloads from an on-premises Oracle data warehouse and IBM DataStage environment to a cloud-based Azure data lake architecture. You will design, build, and optimize scalable data pipelines using Azure Databricks and Azure Data Factory, implement data-quality ",
+  "search_profile_id": {
+   "$oid": "6ac7a4e8b58fd79ede4834dc"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-08T20:30:13.125Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-08T20:30:56.002Z"
+  },
+  "match_result": {
+   "job_id": "6ac7fd55fd5871b120962eab",
+   "recommended_resume_id": "6ac79eb6c2080d267cf1bb46",
+   "recommended_resume_name": "Veera Sekhar (Veera-AzureDataEngineer_20261008_191622.docx)",
+   "recommended_resume_file_name": "Veera-AzureDataEngineer_20261008_191622.docx",
+   "match_percentage": 90,
+   "matched_skills": [
+    "Azure Data Factory",
+    "Databricks",
+    "cloud migration",
+    "data governance"
+   ],
+   "partial_matches": [
+    "Azure AI",
+    "Data Engineering",
+    "Intelligent Automation",
+    "Azure Synapse",
+    "CI/CD pipelines"
+   ],
+   "missing_skills": [
+    "data pipeline design",
+    "data migration",
+    "cloud-based architecture"
+   ],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in Azure Data Engineering, with a strong focus on Azure Data Factory and Databricks, which are critical for the Azure Data Engineer role. His background in cloud migration and data governance aligns well with the job requirements, making him the best fit despite a few missing skills.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e96c2080d267cf1bb3e",
+     "display_name": "Veera Sekhar (Veera-AIMLDataArchitect_20261008_191555.docx)",
+     "file_name": "Veera-AIMLDataArchitect_20261008_191555.docx",
+     "match_percentage": 85
+    },
+    {
+     "resume_id": "6ac79ea0c2080d267cf1bb41",
+     "display_name": "Veera Sekhar (Veera-AzureCloudArchitect_20261008_191605.docx)",
+     "file_name": "Veera-AzureCloudArchitect_20261008_191605.docx",
+     "match_percentage": 80
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-08T20:30:55.974Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6ac7fd55fd5871b120962eae"
+  },
+  "external_job_id": "3d4bbabb-83e4-4b23-a201-14844a025543",
+  "title": "Senior Data Analyst - Remote",
+  "company": "UnitedHealth Group",
+  "location": "Senior Data Analyst - Remote",
+  "work_setting": "Remote",
+  "salary": "USD 91,700.00 - 163,700.00 per year",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/3d4bbabb-83e4-4b23-a201-14844a025543",
+  "application_url": "https://www.dice.com/job-detail/3d4bbabb-83e4-4b23-a201-14844a025543",
+  "application_wizard_url": "https://www.dice.com/job-applications/3d4bbabb-83e4-4b23-a201-14844a025543/wizard",
+  "description_raw": "Title: Senior Data Analyst - Remote at UnitedHealth Group. Location: Senior Data Analyst - Remote (Remote). Employment Type: Full-time. Salary: USD 91,700.00 - 163,700.00 per year. Posted: Today. Summary: Senior Data Analyst - Remote UnitedHealth Group Remote or Saint Paul, Minnesota \u2022 Today Full-time USD 91,700.00 - 163,700.00 per year",
+  "search_profile_id": {
+   "$oid": "6ac7a4e8b58fd79ede4834dc"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-08T20:30:13.125Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-08T20:31:15.505Z"
+  },
+  "match_result": {
+   "job_id": "6ac7fd55fd5871b120962eae",
+   "recommended_resume_id": "6ac79ed51c2080d267cf1bb58",
+   "recommended_resume_name": "Veera Sekhar (Veera-DataAnalyst_20261008_191658.docx)",
+   "recommended_resume_file_name": "Veera-DataAnalyst_20261008_191658.docx",
+   "match_percentage": 90,
+   "matched_skills": [
+    "SQL",
+    "Python",
+    "Azure Synapse",
+    "Databricks",
+    "Power BI"
+   ],
+   "partial_matches": [],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume aligns perfectly with the Senior Data Analyst role, showcasing extensive experience in data analytics, particularly with Azure Synapse, Databricks, and Power BI. His 15+ years of experience in the data analytics lifecycle makes him an ideal candidate for this position.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e90c2080d267cf1bb3c",
+     "display_name": "Veera Sekhar (Veera-AIDataArchitect_20261008_191543.docx)",
+     "file_name": "Veera-AIDataArchitect_20261008_191543.docx",
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79e9cc2080d267cf1bb40",
+     "display_name": "Veera Sekhar (Veera-AWSDataEngineer_20261008_191601.docx)",
+     "file_name": "Veera-AWSDataEngineer_20261008_191601.docx",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-08T20:31:15.481Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6ac800b2fd5871b120962eb7"
+  },
+  "external_job_id": "0f888356-d6b1-4431-a0e5-286a2278d38a",
+  "title": "Power Platform Developer (DOD Clearance Required)",
+  "company": "NavAide",
+  "location": "Remote or San Diego, California",
+  "work_setting": "Remote",
+  "salary": "USD 98,000.00 - 140,000.00 per year",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/0f888356-d6b1-4431-a0e5-286a2278d38a",
+  "application_url": "https://www.dice.com/job-detail/0f888356-d6b1-4431-a0e5-286a2278d38a",
+  "application_wizard_url": "https://www.dice.com/job-applications/0f888356-d6b1-4431-a0e5-286a2278d38a/wizard",
+  "description_raw": "Title: Power Platform Developer (DOD Clearance Required) at NavAide. Location: Remote or San Diego, California (Remote). Employment Type: Full-time. Salary: USD 98,000.00 - 140,000.00 per year. Posted: Today. Summary: Power Platform Developer (DOD Clearance Required) NavAide Remote or San Diego, California \u2022 Today Full-time USD 98,000.00 - 140,000.00 per year",
+  "search_profile_id": {
+   "$oid": "6ac8006cfd5871b120962eb6"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "APPLIED",
+  "created_at": {
+   "$date": "2026-10-08T20:44:34.703Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-08T20:46:51.337Z"
+  },
+  "match_result": {
+   "job_id": "6ac800b2fd5871b120962eb7",
+   "recommended_resume_id": "6ac79ef5c2080d267cf1bb5d",
+   "recommended_resume_name": "Veera Sekhar (Veera-Power_Platform_Developer_20261008_191729.docx)",
+   "recommended_resume_file_name": "Veera-Power_Platform_Developer_20261008_191729.docx",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Power Platform",
+    "Power Apps",
+    "Power Automate",
+    "Azure"
+   ],
+   "partial_matches": [
+    "Microsoft 365",
+    "Azure Data Factory",
+    "Azure Synapse",
+    "Dataverse"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume is the strongest fit for the Power Platform Developer role due to extensive experience with Power Platform technologies, including Power Apps and Power Automate, which are crucial for the position. His background in Azure further aligns with the job requirements.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb5b",
+     "display_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+     "file_name": null,
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79ef1c2080d267cf1bb5b",
+     "display_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+     "file_name": "Veera-MLEngineer_20261008_191727.pdf",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-08T20:46:51.296Z"
+   }
+  },
+  "description_structured": {
+   "role": "Power Platform Developer (DOD Clearance Required)",
+   "required_skills": [],
+   "preferred_skills": [],
+   "experience": "Full-time",
+   "responsibilities": [],
+   "education": null,
+   "certifications": [],
+   "cloud": [],
+   "tools": [],
+   "domain": null
+  },
+  "applied_at": {
+   "$date": "2026-10-08T20:47:23.883Z"
+  },
+  "failure_reason": null
+ },
+ {
+  "_id": {
+   "$oid": "6ac800b2fd5871b120962eb8"
+  },
+  "external_job_id": "e77ffee1-9b39-410d-aea4-3dac7279586b",
+  "title": "Power Platform Developer",
+  "company": "Tech Company",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "USD 113,000.00 - 188,000.00 per year",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/e77ffee1-9b39-410d-aea4-3dac7279586b",
+  "application_url": "https://www.dice.com/job-detail/e77ffee1-9b39-410d-aea4-3dac7279586b",
+  "application_wizard_url": "https://www.dice.com/job-applications/e77ffee1-9b39-410d-aea4-3dac7279586b/wizard",
+  "description_raw": "Title: Power Platform Developer at Tech Company. Location: Remote (Remote). Employment Type: Full-time. Salary: USD 113,000.00 - 188,000.00 per year. Posted: Today. Summary: Navigant Consulting Power Platform Developer Remote \u2022 Today Job Family: SAAS/PAAS/Cloud Consulting Travel Required: Up to 25% Clearance Required: Ability to Obtain Public Trust What You Will Do: We are looking for a hands-on software engineer with deep knowledge of Microsoft Power Platform, including some UiPath understanding. An expert on Power Apps to design, configure and develop custom solutions in Microsoft Power platform. The candidate will take an active role in supporting and building on",
+  "search_profile_id": {
+   "$oid": "6ac8006cfd5871b120962eb6"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "APPLIED",
+  "created_at": {
+   "$date": "2026-10-08T20:44:34.703Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-08T21:02:06.655Z"
+  },
+  "match_result": {
+   "job_id": "6ac800b2fd5871b120962eb8",
+   "recommended_resume_id": "6ac79ef5c2080d267cf1bb62",
+   "recommended_resume_name": "Veera Sekhar (Veera-Power_Platform_Developer_20261008_191729.docx)",
+   "recommended_resume_file_name": "Veera-Power_Platform_Developer_20261008_191729.docx",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Microsoft Power Platform",
+    "Power Apps"
+   ],
+   "partial_matches": [
+    "Power Automate",
+    "Azure",
+    "CI/CD pipelines"
+   ],
+   "missing_skills": [
+    "UiPath"
+   ],
+   "reason": "This candidate has extensive experience as a Power Platform Developer, with strong skills in Microsoft Power Platform and Power Apps, which are critical for the role. Although UiPath is missing, the candidate's background in Azure and CI/CD pipelines aligns well with the job requirements.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb5b",
+     "display_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+     "file_name": null,
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79ee6c2080d267cf1bb57",
+     "display_name": "Veera Sekhar (Veera-IntegrationDataEngineeer_20261008_191715.pdf)",
+     "file_name": "Veera-IntegrationDataEngineeer_20261008_191715.pdf",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-08T21:02:06.629Z"
+   }
+  },
+  "description_structured": {
+   "role": "Power Platform Developer",
+   "required_skills": [
+    "Microsoft Power Platform",
+    "Power Apps",
+    "UiPath"
+   ],
+   "preferred_skills": [],
+   "experience": "Hands-on software engineering experience with deep knowledge of Microsoft Power Platform",
+   "responsibilities": [
+    "Design, configure and develop custom solutions in Microsoft Power Platform",
+    "Support and build on existing solutions"
+   ],
+   "education": null,
+   "certifications": [],
+   "cloud": [
+    "SAAS",
+    "PAAS",
+    "Cloud Consulting"
+   ],
+   "tools": [],
+   "domain": null
+  },
+  "failure_reason": null,
+  "applied_at": {
+   "$date": "2026-10-08T21:02:27.875Z"
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6ac800b2fd5871b120962eb9"
+  },
+  "external_job_id": "55b458a0-2f22-42f7-8eed-8aec8b8a916d",
+  "title": "Power Platform Developer",
+  "company": "Tech Company",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "Depends on Experience",
+  "employment_type": "Full-time",
+  "posted_date": "21d ago",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/55b458a0-2f22-42f7-8eed-8aec8b8a916d",
+  "application_url": "https://www.dice.com/job-detail/55b458a0-2f22-42f7-8eed-8aec8b8a916d",
+  "application_wizard_url": "https://www.dice.com/job-applications/55b458a0-2f22-42f7-8eed-8aec8b8a916d/wizard",
+  "description_raw": "Title: Power Platform Developer at Tech Company. Location: Remote (Remote). Employment Type: Full-time. Salary: Depends on Experience. Posted: 21d ago. Summary: Dynanet Corporation Power Platform Developer Remote \u2022 21d ago Position Details: Job Title: Power Platform Developer Job Type: Full-time Location: Remote with possible occasional in-person in the DC Metro Area Dynanet Corporation Overview: Dynanet started with a focus on IT infrastructure and operations, helping organizations enhance their networks and overcome the limitations of 1990s technology. From strengthening communication channels to introducing innovative ways to collaborate and share in",
+  "search_profile_id": {
+   "$oid": "6ac8006cfd5871b120962eb6"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-08T20:44:34.703Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-08T20:44:52.387Z"
+  },
+  "match_result": {
+   "job_id": "6ac800b2fd5871b120962eb9",
+   "recommended_resume_id": "6ac79ef5c2080d267cf1bb5d",
+   "recommended_resume_name": "Veera Sekhar (Veera-Power_Platform_Developer_20261008_191729.docx)",
+   "recommended_resume_file_name": "Veera-Power_Platform_Developer_20261008_191729.docx",
+   "match_percentage": 95,
+   "matched_skills": [
+    "Power Platform",
+    "Power Apps",
+    "Power Automate",
+    "Azure"
+   ],
+   "partial_matches": [
+    "Microsoft 365",
+    "Azure Data Factory",
+    "Azure Synapse",
+    "Dataverse"
+   ],
+   "missing_skills": [],
+   "reason": "This candidate has extensive experience as a Power Platform Developer, with a strong focus on Power Apps and Power Automate, which aligns perfectly with the job requirements. Their background in Azure and Microsoft 365 further enhances their suitability for the role.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb5b",
+     "display_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+     "file_name": null,
+     "match_percentage": 80
+    },
+    {
+     "resume_id": "6ac79ef1c2080d267cf1bb5b",
+     "display_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+     "file_name": "Veera-MLEngineer_20261008_191727.pdf",
+     "match_percentage": 75
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-08T20:44:52.364Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6ac800b2fd5871b120962eba"
+  },
+  "external_job_id": "e3caab8a-e66c-496f-a82a-afcaaa7d7fe5",
+  "title": "Power Platform Developer, Senior",
+  "company": "Andworx",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/e3caab8a-e66c-496f-a82a-afcaaa7d7fe5",
+  "application_url": "https://www.dice.com/job-detail/e3caab8a-e66c-496f-a82a-afcaaa7d7fe5",
+  "application_wizard_url": "https://www.dice.com/job-applications/e3caab8a-e66c-496f-a82a-afcaaa7d7fe5/wizard",
+  "description_raw": "Title: Power Platform Developer, Senior at Andworx. Location: Remote (Remote). Employment Type: Full-time. Salary: . Posted: Today. Summary: Andworx Power Platform Developer, Senior District of Columbia \u2022 Today Andworx is hiring a Senior Power Platform Developer to provide expertise creating impactful and transformative solutions with the Microsoft Power Platform (Power Apps, Power Automate, Power BI, Power Pages) in support of a Federal Government client. As a candidate, you have strong technical skills with the ability to make visually pleasing low code/no code solutions and be able to construct rich data visualizations using the M",
+  "search_profile_id": {
+   "$oid": "6ac8006cfd5871b120962eb6"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-08T20:44:34.703Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-08T20:44:59.639Z"
+  },
+  "match_result": {
+   "job_id": "6ac800b2fd5871b120962eba",
+   "recommended_resume_id": "6ac79ef5c2080d267cf1bb5d",
+   "recommended_resume_name": "Veera Sekhar (Veera-Power_Platform_Developer_20261008_191729.docx)",
+   "recommended_resume_file_name": "Veera-Power_Platform_Developer_20261008_191729.docx",
+   "match_percentage": 90,
+   "matched_skills": [
+    "Power Platform",
+    "Power Apps",
+    "Power Automate",
+    "Power BI"
+   ],
+   "partial_matches": [
+    "Microsoft 365",
+    "Azure",
+    "Azure Data Factory",
+    "Dataverse"
+   ],
+   "missing_skills": [
+    "Power Pages",
+    "low code/no code solutions",
+    "data visualizations"
+   ],
+   "reason": "Veera Sekhar's resume is the strongest fit for the Senior Power Platform Developer role as it explicitly lists key required skills such as Power Apps, Power Automate, and Power BI. Additionally, the candidate has extensive experience in Microsoft 365 and Azure, which aligns well with the job requirements. While there are a few missing skills, the overall alignment with the role is very strong.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e96c2080d267cf1bb3e",
+     "display_name": "Veera Sekhar (Veera-AIMLDataArchitect_20261008_191555.docx)",
+     "file_name": "Veera-AIMLDataArchitect_20261008_191555.docx",
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79e93c2080d267cf1bb3d",
+     "display_name": "Veera Sekhar (Veera-AIDeveloper_20261008_191552.pdf)",
+     "file_name": "Veera-AIDeveloper_20261008_191552.pdf",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-08T20:44:59.612Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6ac8b5b25da921aff9cc3c3f"
+  },
+  "external_job_id": "e2a984d3-7aaf-4376-8e72-aaf74ec8abee",
+  "title": "Software Engineer, Advanced Analytics",
+  "company": "General Motors",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/e2a984d3-7aaf-4376-8e72-aaf74ec8abee",
+  "application_url": "https://www.dice.com/job-detail/e2a984d3-7aaf-4376-8e72-aaf74ec8abee",
+  "application_wizard_url": "https://www.dice.com/job-applications/e2a984d3-7aaf-4376-8e72-aaf74ec8abee/wizard",
+  "description_raw": "Title: Software Engineer, Advanced Analytics at General Motors. Location: Remote (Remote). Employment Type: Full-time. Salary: . Posted: Today. Summary: Software Engineer, Advanced Analytics General Motors Remote \u2022 Today Full-time",
+  "search_profile_id": {
+   "$oid": "6ac7a4e8b58fd79ede4834dc"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-09T09:36:49.838Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-09T09:37:11.411Z"
+  },
+  "match_result": {
+   "job_id": "6ac8b5b25da921aff9cc3c3f",
+   "recommended_resume_id": "6ac0c78219f45aaa5a79af38",
+   "recommended_resume_name": "Resume_Balaji_Viswanadh.pdf",
+   "recommended_resume_file_name": "Resume_Balaji_Viswanadh.pdf",
+   "match_percentage": 85,
+   "matched_skills": [],
+   "partial_matches": [
+    "Python",
+    "Java",
+    "SQL"
+   ],
+   "missing_skills": [],
+   "reason": "This candidate has a strong background in software development with relevant skills in Python and Java, which are essential for a Software Engineer role. Their experience in building scalable applications aligns well with the responsibilities expected in advanced analytics.",
+   "alternatives": [
+    {
+     "resume_id": "6ac0ca0219f45aaa5a79af40",
+     "display_name": "Resume_Balaji_Viswanadh.pdf",
+     "file_name": "Resume_Balaji_Viswanadh.pdf",
+     "match_percentage": 80
+    },
+    {
+     "resume_id": "6ac79e90c2080d267cf1bb3c",
+     "display_name": "Veera Sekhar (Veera-AIDataArchitect_20261008_191543.docx)",
+     "file_name": "Veera-AIDataArchitect_20261008_191543.docx",
+     "match_percentage": 75
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-09T09:37:11.351Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6ac8b5b25da921aff9cc3c41"
+  },
+  "external_job_id": "ce7f06e4-5c34-4339-b45d-4853f613cb21",
+  "title": "Senior Data Architect",
+  "company": "Tech Company",
+  "location": "Remote or Denver, Colorado",
+  "work_setting": "Remote",
+  "salary": "USD 100,300.00 - 160,500.00 per year",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/ce7f06e4-5c34-4339-b45d-4853f613cb21",
+  "application_url": "https://www.dice.com/job-detail/ce7f06e4-5c34-4339-b45d-4853f613cb21",
+  "application_wizard_url": "https://www.dice.com/job-applications/ce7f06e4-5c34-4339-b45d-4853f613cb21/wizard",
+  "description_raw": "Title: Senior Data Architect at Tech Company. Location: Remote or Denver, Colorado (Remote). Employment Type: Full-time. Salary: USD 100,300.00 - 160,500.00 per year. Posted: Today. Summary: Generac Power Systems Inc Senior Data Architect Remote or Denver, Colorado \u2022 Today We believe power is a promise - a shared commitment to be there for others when it matters most. For more than 65 years, we've turned big ideas into solutions that help protect homes, strengthen businesses and build a more resilient, efficient, sustainable energy future. Ready to Power a Smarter World with us? As a Senior Data Architect on Generac's Industrial Cloud team, you will play a critical role in designing",
+  "search_profile_id": {
+   "$oid": "6ac7a4e8b58fd79ede4834dc"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "FAILED",
+  "created_at": {
+   "$date": "2026-10-09T09:36:49.838Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-09T09:44:40.868Z"
+  },
+  "match_result": {
+   "job_id": "6ac8b5b25da921aff9cc3c41",
+   "recommended_resume_id": "6ac79ed2c2080d267cf1bb52",
+   "recommended_resume_name": "Veera Sekhar (Veera-DataArchitect_20261008_191700.docx)",
+   "recommended_resume_file_name": "Veera-DataArchitect_20261008_191700.docx",
+   "match_percentage": 95,
+   "matched_skills": [
+    "Azure",
+    "Databricks",
+    "SQL",
+    "Azure Data Factory",
+    "DBT",
+    "Power BI"
+   ],
+   "partial_matches": [
+    "ETL",
+    "ELT",
+    "Data Governance",
+    "Terraform"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume aligns closely with the Senior Data Architect role, showcasing extensive experience in designing scalable cloud-based data platforms and a strong proficiency in Azure and Databricks, which are critical for this position. His background in data governance and ETL processes further enhances his fit for the role.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e90c2080d267cf1bb3c",
+     "display_name": "Veera Sekhar (Veera-AIDataArchitect_20261008_191543.docx)",
+     "file_name": "Veera-AIDataArchitect_20261008_191543.docx",
+     "match_percentage": 85
+    },
+    {
+     "resume_id": "6ac79e96c2080d267cf1bb3e",
+     "display_name": "Veera Sekhar (Veera-AIMLDataArchitect_20261008_191555.docx)",
+     "file_name": "Veera-AIMLDataArchitect_20261008_191555.docx",
+     "match_percentage": 80
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-09T09:44:19.222Z"
+   }
+  },
+  "description_structured": {
+   "role": "Senior Data Architect",
+   "required_skills": [],
+   "preferred_skills": [],
+   "experience": "",
+   "responsibilities": [],
+   "education": null,
+   "certifications": [],
+   "cloud": [],
+   "tools": [],
+   "domain": null
+  },
+  "failure_reason": "Page.wait_for_timeout: Target page, context or browser has been closed"
+ },
+ {
+  "_id": {
+   "$oid": "6ac8b5b25da921aff9cc3c42"
+  },
+  "external_job_id": "06e00a7f-c607-44e8-b4f4-dcfc16a42581",
+  "title": "Data Architect",
+  "company": "Tech Company",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "USD 138,000.00 - 200,100.00 per year",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/06e00a7f-c607-44e8-b4f4-dcfc16a42581",
+  "application_url": "https://www.dice.com/job-detail/06e00a7f-c607-44e8-b4f4-dcfc16a42581",
+  "application_wizard_url": "https://www.dice.com/job-applications/06e00a7f-c607-44e8-b4f4-dcfc16a42581/wizard",
+  "description_raw": "Title: Data Architect at Tech Company. Location: Remote (Remote). Employment Type: Full-time. Salary: USD 138,000.00 - 200,100.00 per year. Posted: Today. Summary: Empower Annuity Insurance Company of America Data Architect Remote \u2022 Today Our vision for the future is based on the idea that transforming financial lives starts by giving our people the freedom to transform their own. We have a flexible work environment, and fluid career paths. We not only encourage but celebrate internal mobility. We also recognize the importance of purpose, well-being, and work-life balance. Within Empower and our communities, we work hard to create a welcoming and inclusive",
+  "search_profile_id": {
+   "$oid": "6ac7a4e8b58fd79ede4834dc"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "APPLIED",
+  "created_at": {
+   "$date": "2026-10-09T09:36:49.838Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-09T09:45:43.343Z"
+  },
+  "match_result": {
+   "job_id": "6ac8b5b25da921aff9cc3c42",
+   "recommended_resume_id": "6ac79ed2c2080d267cf1bb52",
+   "recommended_resume_name": "Veera Sekhar (Veera-DataArchitect_20261008_191700.docx)",
+   "recommended_resume_file_name": "Veera-DataArchitect_20261008_191700.docx",
+   "match_percentage": 95,
+   "matched_skills": [
+    "Azure",
+    "Databricks",
+    "SQL",
+    "Azure Data Factory",
+    "DBT",
+    "Power BI",
+    "Terraform"
+   ],
+   "partial_matches": [
+    "ETL",
+    "ELT",
+    "Unity Catalog",
+    "Microsoft Purview",
+    "RBAC",
+    "Delta Lake",
+    "Medallion Architecture",
+    "Spark",
+    "Azure Synapse Analytics"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume aligns closely with the Data Architect role, showcasing extensive experience in designing scalable cloud-based data platforms, particularly with Azure and Databricks. His skills in data engineering and architecture directly match the requirements of the position, making him the strongest candidate.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e96c2080d267cf1bb3e",
+     "display_name": "Veera Sekhar (Veera-AIMLDataArchitect_20261008_191555.docx)",
+     "file_name": "Veera-AIMLDataArchitect_20261008_191555.docx",
+     "match_percentage": 90
+    },
+    {
+     "resume_id": "6ac79ea0c2080d267cf1bb41",
+     "display_name": "Veera Sekhar (Veera-AzureCloudArchitect_20261008_191605.docx)",
+     "file_name": "Veera-AzureCloudArchitect_20261008_191605.docx",
+     "match_percentage": 88
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-09T09:45:43.283Z"
+   }
+  },
+  "description_structured": {
+   "role": "Data Architect",
+   "required_skills": [],
+   "preferred_skills": [],
+   "experience": "",
+   "responsibilities": [],
+   "education": null,
+   "certifications": [],
+   "cloud": [],
+   "tools": [],
+   "domain": null
+  },
+  "applied_at": {
+   "$date": "2026-10-09T09:46:07.186Z"
+  },
+  "failure_reason": null
+ },
+ {
+  "_id": {
+   "$oid": "6ac8b5b35da921aff9cc3c49"
+  },
+  "external_job_id": "d3f6df2b-c811-4b46-8dca-673d0b363411",
+  "title": "Healthcare Clinical Data Analyst",
+  "company": "Tech Company",
+  "location": "Remote or New York, New York",
+  "work_setting": "Remote",
+  "salary": "",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": false,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/d3f6df2b-c811-4b46-8dca-673d0b363411",
+  "application_url": "https://www.dice.com/job-detail/d3f6df2b-c811-4b46-8dca-673d0b363411",
+  "application_wizard_url": "https://www.dice.com/job-applications/d3f6df2b-c811-4b46-8dca-673d0b363411/wizard",
+  "description_raw": "Title: Healthcare Clinical Data Analyst at Tech Company. Location: Remote or New York, New York (Remote). Employment Type: Full-time. Salary: . Posted: Today. Summary: Katalyst Healthcares and Lifesciences Healthcare Clinical Data Analyst Remote or New York, New York \u2022 Today Summary: As a Data Analyst you will be a part of an Agile team to build healthcare applications and implement new features while adhering to the best coding development standards. Responsibilities: Minimum 12&plus; years' experience as a senior Data Analyst in the healthcare sector. Knowledge of FHIR Excellent skills building source to target mappings using hL7/FHIR messaging protocols, te",
+  "search_profile_id": {
+   "$oid": "6ac7a4e8b58fd79ede4834dc"
+  },
+  "user_id": "6ac795299bd4053280fb6f08",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-09T09:36:49.838Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-09T09:38:26.478Z"
+  },
+  "match_result": {
+   "job_id": "6ac8b5b35da921aff9cc3c49",
+   "recommended_resume_id": "6ac79ee0c2080d267cf1bb58",
+   "recommended_resume_name": "Veera Sekhar (Veera-IT_Delivery_Lead_II_20261008_191718.docx)",
+   "recommended_resume_file_name": "Veera-IT_Delivery_Lead_II_20261008_191718.docx",
+   "match_percentage": 85,
+   "matched_skills": [
+    "HL7",
+    "FHIR Messaging Protocols",
+    "Data Analysis"
+   ],
+   "partial_matches": [
+    "Agile Methodologies"
+   ],
+   "missing_skills": [
+    "Healthcare Applications"
+   ],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in healthcare IT solutions, particularly in leading IT project delivery with a focus on compliance and operational efficiency. His skills in HL7 and FHIR Messaging Protocols align closely with the job requirements, making him a strong candidate for the Healthcare Clinical Data Analyst role.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb59",
+     "display_name": "Veera Sekhar (Veera-JavaResume_20261008_191721.pdf)",
+     "file_name": "Veera-JavaResume_20261008_191721.pdf",
+     "match_percentage": 75
+    },
+    {
+     "resume_id": "6ac79ed2c2080d267cf1bb50",
+     "display_name": "Veera Sekhar (Veera-CloudGenerativeAIEngineer_20261008_191655.pdf)",
+     "file_name": "Veera-CloudGenerativeAIEngineer_20261008_191655.pdf",
+     "match_percentage": 70
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-09T09:38:26.427Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3d9"
+  },
+  "external_job_id": "cbd91427-7aeb-4f2d-b86d-3f5eac7c73ca",
+  "title": "Python Developer with Agentic AI",
+  "company": "Avs Solutions Inc",
+  "location": "Hybrid in Irving, Texas",
+  "work_setting": "Hybrid",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/cbd91427-7aeb-4f2d-b86d-3f5eac7c73ca",
+  "application_url": "https://www.dice.com/job-detail/cbd91427-7aeb-4f2d-b86d-3f5eac7c73ca",
+  "application_wizard_url": "https://www.dice.com/job-applications/cbd91427-7aeb-4f2d-b86d-3f5eac7c73ca/wizard",
+  "description_raw": "Title: Python Developer with Agentic AI at Avs Solutions Inc. Location: Hybrid in Irving, Texas (Hybrid). Employment Type: Contract. Salary: Depends on Experience. Posted: Today. Summary: Python Developer with Agentic AI Avs Solutions Inc Hybrid in Irving, Texas \u2022 Today Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "REVIEW",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:50:53.094Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3d9",
+   "recommended_resume_id": "6ac79f04c2080d267cf1bb61",
+   "recommended_resume_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+   "recommended_resume_file_name": "Veera-PythonEngineer_20261008_191745.pdf",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "FastAPI",
+    "RESTful APIs"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume as a Senior Full Stack Python Engineer aligns closely with the requirements for a Python Developer role, showcasing extensive experience in Python and related technologies. The candidate's background in developing scalable cloud solutions further enhances their fit for the position.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ed4c2080d267cf1bb51",
+     "display_name": "Veera Sekhar (Veera-DataAnalyst_20261008_191658.docx)",
+     "file_name": "Veera-DataAnalyst_20261008_191658.docx",
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb55",
+     "display_name": "Veera Sekhar (Veera-GCPCloudArchitect_20261008_191709.docx)",
+     "file_name": "Veera-GCPCloudArchitect_20261008_191709.docx",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:34:07.744Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3da"
+  },
+  "external_job_id": "50437d4d-09d5-4981-86d9-909c35614d99",
+  "title": "Senior Python Developer",
+  "company": "OVS Technologies Inc",
+  "location": "Hybrid in McLean, Virginia",
+  "work_setting": "Hybrid",
+  "salary": "50 - 60",
+  "employment_type": "Contract",
+  "posted_date": "Yesterday",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/50437d4d-09d5-4981-86d9-909c35614d99",
+  "application_url": "https://www.dice.com/job-detail/50437d4d-09d5-4981-86d9-909c35614d99",
+  "application_wizard_url": "https://www.dice.com/job-applications/50437d4d-09d5-4981-86d9-909c35614d99/wizard",
+  "description_raw": "Title: Senior Python Developer at OVS Technologies Inc. Location: Hybrid in McLean, Virginia (Hybrid). Employment Type: Contract. Salary: 50 - 60. Posted: Yesterday. Summary: Senior Python Developer OVS Technologies Inc Hybrid in McLean, Virginia \u2022 Yesterday Contract 50 - 60",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:34:12.976Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3da",
+   "recommended_resume_id": "6ac79ef4c2080d267cf1bb5c",
+   "recommended_resume_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+   "recommended_resume_file_name": "Veera-PythonEngineer_20261008_191745.pdf",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "FastAPI",
+    "Django",
+    "RESTful APIs"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume as a Senior Full Stack Python Engineer demonstrates extensive experience in Python development, which aligns perfectly with the Senior Python Developer role. The candidate's proficiency in related frameworks and technologies further supports their suitability for the position.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb5a",
+     "display_name": "Veera Sekhar (Veera-DataAnalyst_20261008_191658.docx)",
+     "file_name": null,
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79ee6c2080d267cf1bb57",
+     "display_name": "Veera Sekhar (Veera-IntegrationDataEngineeer_20261008_191715.pdf)",
+     "file_name": "Veera-IntegrationDataEngineeer_20261008_191715.pdf",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:34:12.935Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3db"
+  },
+  "external_job_id": "397aeff8-7f07-4497-a67d-876dc27ffe39",
+  "title": "Technical Lead \u2013 Full Stack Data Platforms",
+  "company": "Maven Companies",
+  "location": "Boston, Massachusetts",
+  "work_setting": "On-Site",
+  "salary": "Depends on Experience",
+  "employment_type": "Third Party, Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/397aeff8-7f07-4497-a67d-876dc27ffe39",
+  "application_url": "https://www.dice.com/job-detail/397aeff8-7f07-4497-a67d-876dc27ffe39",
+  "application_wizard_url": "https://www.dice.com/job-applications/397aeff8-7f07-4497-a67d-876dc27ffe39/wizard",
+  "description_raw": "Title: Technical Lead \u2013 Full Stack Data Platforms at Maven Companies. Location: Boston, Massachusetts (On-Site). Employment Type: Third Party, Contract. Salary: Depends on Experience. Posted: Today. Summary: Technical Lead \u2013 Full Stack Data Platforms Maven Companies Boston, Massachusetts \u2022 Today Third Party, Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:34:22.250Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3db",
+   "recommended_resume_id": "6ac79e96c2080d267cf1bb3e",
+   "recommended_resume_name": "Veera Sekhar (Veera-AIMLDataArchitect_20261008_191555.docx)",
+   "recommended_resume_file_name": "Veera-AIMLDataArchitect_20261008_191555.docx",
+   "match_percentage": 85,
+   "matched_skills": [],
+   "partial_matches": [
+    "Azure AI",
+    "Data Engineering",
+    "Intelligent Automation",
+    "Azure Synapse",
+    "Databricks",
+    "Azure Kubernetes Service (AKS)",
+    "CI/CD pipelines",
+    "cloud migration",
+    "data governance"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's extensive experience in AI-driven cloud solutions and data engineering aligns well with the responsibilities of a Technical Lead in Full Stack Data Platforms. His background in Azure and data governance complements the role's requirements effectively.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e90c2080d267cf1bb3c",
+     "display_name": "Veera Sekhar (Veera-AIDataArchitect_20261008_191543.docx)",
+     "file_name": "Veera-AIDataArchitect_20261008_191543.docx",
+     "match_percentage": 75
+    },
+    {
+     "resume_id": "6ac79e93c2080d267cf1bb3d",
+     "display_name": "Veera Sekhar (Veera-AIDeveloper_20261008_191552.pdf)",
+     "file_name": "Veera-AIDeveloper_20261008_191552.pdf",
+     "match_percentage": 70
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:34:22.208Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3dc"
+  },
+  "external_job_id": "ea246a24-ec7f-404d-ba75-8032a7d8b846",
+  "title": "Ontology Engineer \u2013 Knowledge Graph & Agentic AI (Neo4j / Graphwise)",
+  "company": "Sradha Technologies LLC",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/ea246a24-ec7f-404d-ba75-8032a7d8b846",
+  "application_url": "https://www.dice.com/job-detail/ea246a24-ec7f-404d-ba75-8032a7d8b846",
+  "application_wizard_url": "https://www.dice.com/job-applications/ea246a24-ec7f-404d-ba75-8032a7d8b846/wizard",
+  "description_raw": "Title: Ontology Engineer \u2013 Knowledge Graph & Agentic AI (Neo4j / Graphwise) at Sradha Technologies LLC. Location: Remote (Remote). Employment Type: Contract. Salary: Depends on Experience. Posted: Today. Summary: Ontology Engineer \u2013 Knowledge Graph & Agentic AI (Neo4j / Graphwise) Sradha Technologies LLC Remote \u2022 Today Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:34:32.275Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3dc",
+   "recommended_resume_id": "6ac79e96c2080d267cf1bb3e",
+   "recommended_resume_name": "Veera Sekhar (Veera-AIMLDataArchitect_20261008_191555.docx)",
+   "recommended_resume_file_name": "Veera-AIMLDataArchitect_20261008_191555.docx",
+   "match_percentage": 75,
+   "matched_skills": [],
+   "partial_matches": [
+    "LangGraph"
+   ],
+   "missing_skills": [
+    "Neo4j",
+    "Graphwise"
+   ],
+   "reason": "Veera Sekhar's extensive experience in AI-driven solutions and data architecture aligns well with the Ontology Engineer role, particularly in the context of knowledge graphs. Although the specific tools Neo4j and Graphwise are not mentioned, his background in related technologies suggests a strong potential for adaptation.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e90c2080d267cf1bb3c",
+     "display_name": "Veera Sekhar (Veera-AIDataArchitect_20261008_191543.docx)",
+     "file_name": "Veera-AIDataArchitect_20261008_191543.docx",
+     "match_percentage": 60
+    },
+    {
+     "resume_id": "6ac79e93c2080d267cf1bb3d",
+     "display_name": "Veera Sekhar (Veera-AIDeveloper_20261008_191552.pdf)",
+     "file_name": "Veera-AIDeveloper_20261008_191552.pdf",
+     "match_percentage": 55
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:34:32.235Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3dd"
+  },
+  "external_job_id": "ee19bbb7-703c-4d12-b4dd-32f0ce269d9a",
+  "title": "AI Technical Lead - Java & Agentic AI",
+  "company": "Wise Skulls Corp.",
+  "location": "Hybrid in Detroit, Michigan",
+  "work_setting": "Hybrid",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract",
+  "posted_date": "Yesterday",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/ee19bbb7-703c-4d12-b4dd-32f0ce269d9a",
+  "application_url": "https://www.dice.com/job-detail/ee19bbb7-703c-4d12-b4dd-32f0ce269d9a",
+  "application_wizard_url": "https://www.dice.com/job-applications/ee19bbb7-703c-4d12-b4dd-32f0ce269d9a/wizard",
+  "description_raw": "Title: AI Technical Lead - Java & Agentic AI at Wise Skulls Corp.. Location: Hybrid in Detroit, Michigan (Hybrid). Employment Type: Contract. Salary: Depends on Experience. Posted: Yesterday. Summary: AI Technical Lead - Java & Agentic AI Wise Skulls Corp. Hybrid in Detroit, Michigan \u2022 Yesterday Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:34:41.903Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3dd",
+   "recommended_resume_id": "6ac79ee9c2080d267cf1bb59",
+   "recommended_resume_name": "Veera Sekhar (Veera-JavaResume_20261008_191721.pdf)",
+   "recommended_resume_file_name": "Veera-JavaResume_20261008_191721.pdf",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Java"
+   ],
+   "partial_matches": [],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in Java development, which aligns well with the requirements for the AI Technical Lead role. His background in software engineering and cloud technologies positions him as a strong candidate for leading AI initiatives.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ed2c2080d267cf1bb50",
+     "display_name": "Veera Sekhar (Veera-CloudGenerativeAIEngineer_20261008_191655.pdf)",
+     "file_name": "Veera-CloudGenerativeAIEngineer_20261008_191655.pdf",
+     "match_percentage": 75
+    },
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb55",
+     "display_name": "Veera Sekhar (Veera-GCPCloudArchitect_20261008_191709.docx)",
+     "file_name": "Veera-GCPCloudArchitect_20261008_191709.docx",
+     "match_percentage": 70
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:34:41.669Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3de"
+  },
+  "external_job_id": "2d3e5de1-58b6-4ad3-be53-2e9443b6b233",
+  "title": "AI Engineer with strong Data Engineering",
+  "company": "Lorven Technologies, Inc.",
+  "location": "Charlotte, North Carolina",
+  "work_setting": "On-Site",
+  "salary": "Depends on Experience",
+  "employment_type": "Third Party, Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/2d3e5de1-58b6-4ad3-be53-2e9443b6b233",
+  "application_url": "https://www.dice.com/job-detail/2d3e5de1-58b6-4ad3-be53-2e9443b6b233",
+  "application_wizard_url": "https://www.dice.com/job-applications/2d3e5de1-58b6-4ad3-be53-2e9443b6b233/wizard",
+  "description_raw": "Title: AI Engineer with strong Data Engineering at Lorven Technologies, Inc.. Location: Charlotte, North Carolina (On-Site). Employment Type: Third Party, Contract. Salary: Depends on Experience. Posted: Today. Summary: AI Engineer with strong Data Engineering Lorven Technologies, Inc. Charlotte, North Carolina \u2022 Today Third Party, Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:34:53.756Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3de",
+   "recommended_resume_id": "6ac809079df1100716b51a59",
+   "recommended_resume_name": "Jane Smith (AI_Engineer_v1_20261009_025005.docx)",
+   "recommended_resume_file_name": "AI_Engineer_v1_20261009_025005.docx",
+   "match_percentage": 75,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "Docker",
+    "Kubernetes"
+   ],
+   "missing_skills": [],
+   "reason": "Jane Smith's resume aligns closely with the AI Engineer role, showcasing relevant experience in Python and familiarity with modern AI tools and frameworks, making her a strong candidate for the position.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e90c2080d267cf1bb3c",
+     "display_name": "Veera Sekhar (Veera-AIDataArchitect_20261008_191543.docx)",
+     "file_name": "Veera-AIDataArchitect_20261008_191543.docx",
+     "match_percentage": 60
+    },
+    {
+     "resume_id": "6ac79e93c2080d267cf1bb3d",
+     "display_name": "Veera Sekhar (Veera-AIDeveloper_20261008_191552.pdf)",
+     "file_name": "Veera-AIDeveloper_20261008_191552.pdf",
+     "match_percentage": 55
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:34:53.704Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3df"
+  },
+  "external_job_id": "6ee23401-2581-4cce-9570-fd6692bb68bc",
+  "title": "Data Engineer \u2013 Python, SQL, Spark, ETL | Dallas, TX (Onsite)",
+  "company": "Qentelli",
+  "location": "Dallas, Texas",
+  "work_setting": "On-Site",
+  "salary": "Depends on Experience",
+  "employment_type": "Third Party, Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/6ee23401-2581-4cce-9570-fd6692bb68bc",
+  "application_url": "https://www.dice.com/job-detail/6ee23401-2581-4cce-9570-fd6692bb68bc",
+  "application_wizard_url": "https://www.dice.com/job-applications/6ee23401-2581-4cce-9570-fd6692bb68bc/wizard",
+  "description_raw": "Title: Data Engineer \u2013 Python, SQL, Spark, ETL | Dallas, TX (Onsite) at Qentelli. Location: Dallas, Texas (On-Site). Employment Type: Third Party, Contract. Salary: Depends on Experience. Posted: Today. Summary: Data Engineer \u2013 Python, SQL, Spark, ETL | Dallas, TX (Onsite) Qentelli Dallas, Texas \u2022 Today Third Party, Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:35:06.289Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3df",
+   "recommended_resume_id": "6ac79ed2c2080d267cf1bb53",
+   "recommended_resume_name": "Veera Sekhar (Veera-DataArchitect_20261008_191700.docx)",
+   "recommended_resume_file_name": "Veera-DataArchitect_20261008_191700.docx",
+   "match_percentage": 80,
+   "matched_skills": [
+    "Python",
+    "SQL",
+    "Spark",
+    "ETL"
+   ],
+   "partial_matches": [],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in data engineering, with a strong focus on Python, SQL, Spark, and ETL processes, making him an excellent fit for the Data Engineer role. His background in designing scalable data architectures aligns well with the job requirements.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ed4c2080d267cf1bb5c",
+     "display_name": "Veera Sekhar (Veera-DataArchitect_20261008_191700.docx)",
+     "file_name": null,
+     "match_percentage": 75
+    },
+    {
+     "resume_id": "6ac79e90c2080d267cf1bb3c",
+     "display_name": "Veera Sekhar (Veera-AIDataArchitect_20261008_191543.docx)",
+     "file_name": "Veera-AIDataArchitect_20261008_191543.docx",
+     "match_percentage": 70
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:35:06.250Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3e0"
+  },
+  "external_job_id": "e0d6b727-659c-4fab-8d64-c263fbd63728",
+  "title": "Technical Solutions Engineer \u2013 Healthcare IT (SQL / Python / HL7 / FHIR)",
+  "company": "NDA PARTNERS INC",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract, Third Party",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/e0d6b727-659c-4fab-8d64-c263fbd63728",
+  "application_url": "https://www.dice.com/job-detail/e0d6b727-659c-4fab-8d64-c263fbd63728",
+  "application_wizard_url": "https://www.dice.com/job-applications/e0d6b727-659c-4fab-8d64-c263fbd63728/wizard",
+  "description_raw": "Title: Technical Solutions Engineer \u2013 Healthcare IT (SQL / Python / HL7 / FHIR) at NDA PARTNERS INC. Location: Remote (Remote). Employment Type: Contract, Third Party. Salary: Depends on Experience. Posted: Today. Summary: Technical Solutions Engineer \u2013 Healthcare IT (SQL / Python / HL7 / FHIR) NDA PARTNERS INC Remote \u2022 Today Contract, Third Party Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:35:24.285Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3e0",
+   "recommended_resume_id": "6ac79ee0c2080d267cf1bb55",
+   "recommended_resume_name": "Veera Sekhar (Veera-GCPCloudArchitect_20261008_191709.docx)",
+   "recommended_resume_file_name": "Veera-GCPCloudArchitect_20261008_191709.docx",
+   "match_percentage": 85,
+   "matched_skills": [
+    "SQL",
+    "Python"
+   ],
+   "partial_matches": [
+    "HL7",
+    "FHIR"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume demonstrates strong expertise in SQL and Python, which are critical for the Technical Solutions Engineer role. Additionally, he has experience with HL7 and FHIR, making him a well-rounded candidate for healthcare IT solutions.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb59",
+     "display_name": "Veera Sekhar (Veera-JavaResume_20261008_191721.pdf)",
+     "file_name": null,
+     "match_percentage": 80
+    },
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb58",
+     "display_name": "Veera Sekhar (Veera-DataArchitect_20261008_191700.docx)",
+     "file_name": null,
+     "match_percentage": 75
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:35:24.228Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3e1"
+  },
+  "external_job_id": "ef0f3f0a-5a58-4287-b1d8-84a14289a328",
+  "title": "Technical Solutions Engineer \u2013 Healthcare IT (SQL / Python / HL7 / FHIR)",
+  "company": "NDA PARTNERS INC",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract, Third Party",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/ef0f3f0a-5a58-4287-b1d8-84a14289a328",
+  "application_url": "https://www.dice.com/job-detail/ef0f3f0a-5a58-4287-b1d8-84a14289a328",
+  "application_wizard_url": "https://www.dice.com/job-applications/ef0f3f0a-5a58-4287-b1d8-84a14289a328/wizard",
+  "description_raw": "Title: Technical Solutions Engineer \u2013 Healthcare IT (SQL / Python / HL7 / FHIR) at NDA PARTNERS INC. Location: Remote (Remote). Employment Type: Contract, Third Party. Salary: Depends on Experience. Posted: Today. Summary: Technical Solutions Engineer \u2013 Healthcare IT (SQL / Python / HL7 / FHIR) NDA PARTNERS INC Remote \u2022 Today Contract, Third Party Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:35:30Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3e1",
+   "recommended_resume_id": "6ac79ee9c2080d267cf1bb58",
+   "recommended_resume_name": "Veera Sekhar (Veera-IT_Delivery_Lead_II_20261008_191718.docx)",
+   "recommended_resume_file_name": "Veera-IT_Delivery_Lead_II_20261008_191718.docx",
+   "match_percentage": 85,
+   "matched_skills": [
+    "SQL",
+    "Python",
+    "HL7",
+    "FHIR"
+   ],
+   "partial_matches": [],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume demonstrates a strong alignment with the job requirements for the Technical Solutions Engineer role, particularly in healthcare IT. He possesses all required skills including SQL, Python, HL7, and FHIR, along with extensive experience in healthcare solutions, making him the best fit for this position.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ed2c2080d267cf1bb50",
+     "display_name": "Veera Sekhar (Veera-CloudGenerativeAIEngineer_20261008_191655.pdf)",
+     "file_name": "Veera-CloudGenerativeAIEngineer_20261008_191655.pdf",
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb55",
+     "display_name": "Veera Sekhar (Veera-GCPCloudArchitect_20261008_191709.docx)",
+     "file_name": "Veera-GCPCloudArchitect_20261008_191709.docx",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:35:29.955Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae52bc53ac6ddc3e3e2"
+  },
+  "external_job_id": "1d9628c8-93b0-446c-90d0-e5dbf89b2272",
+  "title": "Software Engineer \u2013 Java/Python/C#/JavaScript, Git & CI/CD \u2013 Dallas, TX (Onsite)",
+  "company": "Qentelli",
+  "location": "Dallas, Texas",
+  "work_setting": "On-Site",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract, Third Party",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/1d9628c8-93b0-446c-90d0-e5dbf89b2272",
+  "application_url": "https://www.dice.com/job-detail/1d9628c8-93b0-446c-90d0-e5dbf89b2272",
+  "application_wizard_url": "https://www.dice.com/job-applications/1d9628c8-93b0-446c-90d0-e5dbf89b2272/wizard",
+  "description_raw": "Title: Software Engineer \u2013 Java/Python/C#/JavaScript, Git & CI/CD \u2013 Dallas, TX (Onsite) at Qentelli. Location: Dallas, Texas (On-Site). Employment Type: Contract, Third Party. Salary: Depends on Experience. Posted: Today. Summary: Software Engineer \u2013 Java/Python/C#/JavaScript, Git & CI/CD \u2013 Dallas, TX (Onsite) Qentelli Dallas, Texas \u2022 Today Contract, Third Party Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:35:35.670Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae52bc53ac6ddc3e3e2",
+   "recommended_resume_id": "6ac79ee9c2080d267cf1bb48",
+   "recommended_resume_name": "Veera Sekhar (Veera-JavaResume_20261008_191721.pdf)",
+   "recommended_resume_file_name": "Veera-JavaResume_20261008_191721.pdf",
+   "match_percentage": 100,
+   "matched_skills": [
+    "Java",
+    "Python",
+    "C#",
+    "JavaScript",
+    "Git",
+    "CI/CD"
+   ],
+   "partial_matches": [],
+   "missing_skills": [],
+   "reason": "This candidate has extensive experience as a Software Engineer with a strong focus on Java, Python, C#, and JavaScript, along with proven skills in Git and CI/CD processes. Their background aligns perfectly with the job requirements, making them the best fit for the role.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ef1c2080d267cf1bb64",
+     "display_name": "Veera Sekhar (Veera-CloudEngineer_20261008_191651.docx)",
+     "file_name": null,
+     "match_percentage": 80
+    },
+    {
+     "resume_id": "6ac79ef4c2080d267cf1bb5b",
+     "display_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+     "file_name": null,
+     "match_percentage": 75
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:35:35.625Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3e3"
+  },
+  "external_job_id": "d7e845bd-334d-45e3-b067-9bf7090d1efe",
+  "title": "Python Full Stack and AI Lead",
+  "company": "Nityo Infotech Corporation",
+  "location": "San Jose, California",
+  "work_setting": "On-Site",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/d7e845bd-334d-45e3-b067-9bf7090d1efe",
+  "application_url": "https://www.dice.com/job-detail/d7e845bd-334d-45e3-b067-9bf7090d1efe",
+  "application_wizard_url": "https://www.dice.com/job-applications/d7e845bd-334d-45e3-b067-9bf7090d1efe/wizard",
+  "description_raw": "Title: Python Full Stack and AI Lead at Nityo Infotech Corporation. Location: San Jose, California (On-Site). Employment Type: Contract. Salary: Depends on Experience. Posted: Today. Summary: Python Full Stack and AI Lead Nityo Infotech Corporation San Jose, California \u2022 Today Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:35:45.044Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3e3",
+   "recommended_resume_id": "6ac79ef4c2080d267cf1bb5c",
+   "recommended_resume_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+   "recommended_resume_file_name": "Veera-PythonEngineer_20261008_191745.pdf",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "FastAPI",
+    "Django",
+    "RESTful APIs",
+    "AWS",
+    "Azure"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in Python development, which aligns perfectly with the requirements for a Python Full Stack and AI Lead role. His background in cloud technologies and RESTful services further supports his fit for this position.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ed2c2080d267cf1bb50",
+     "display_name": "Veera Sekhar (Veera-CloudGenerativeAIEngineer_20261008_191655.pdf)",
+     "file_name": "Veera-CloudGenerativeAIEngineer_20261008_191655.pdf",
+     "match_percentage": 80
+    },
+    {
+     "resume_id": "6ac79ef1c2080d267cf1bb5b",
+     "display_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+     "file_name": "Veera-MLEngineer_20261008_191727.pdf",
+     "match_percentage": 75
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:35:44.949Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3e4"
+  },
+  "external_job_id": "9ffc41da-0cc7-435a-9ffa-41b3e1b69938",
+  "title": "Senior GEN AI Engineer",
+  "company": "AIT Global, Inc.",
+  "location": "Plano, Texas",
+  "work_setting": "On-Site",
+  "salary": "",
+  "employment_type": "Contract",
+  "posted_date": "Yesterday",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/9ffc41da-0cc7-435a-9ffa-41b3e1b69938",
+  "application_url": "https://www.dice.com/job-detail/9ffc41da-0cc7-435a-9ffa-41b3e1b69938",
+  "application_wizard_url": "https://www.dice.com/job-applications/9ffc41da-0cc7-435a-9ffa-41b3e1b69938/wizard",
+  "description_raw": "Title: Senior GEN AI Engineer at AIT Global, Inc.. Location: Plano, Texas (On-Site). Employment Type: Contract. Salary: . Posted: Yesterday. Summary: Senior GEN AI Engineer AIT Global, Inc. Plano, Texas \u2022 Yesterday Contract",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:35:53.006Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3e4",
+   "recommended_resume_id": "6ac79ed4c2080d267cf1bb51",
+   "recommended_resume_name": "Veera Sekhar (Veera-DataAnalyst_20261008_191658.docx)",
+   "recommended_resume_file_name": "Veera-DataAnalyst_20261008_191658.docx",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python",
+    "Generative AI",
+    "Azure AI Foundry",
+    "Azure OpenAI"
+   ],
+   "partial_matches": [
+    "Docker",
+    "Kubernetes",
+    "Terraform"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume aligns closely with the Senior GEN AI Engineer role, showcasing extensive experience in Generative AI and relevant cloud technologies. His background in developing scalable AI applications makes him a strong candidate for this position.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e93c2080d267cf1bb3d",
+     "display_name": "Veera Sekhar (Veera-AIDeveloper_20261008_191552.pdf)",
+     "file_name": "Veera-AIDeveloper_20261008_191552.pdf",
+     "match_percentage": 80
+    },
+    {
+     "resume_id": "6ac79ed2c2080d267cf1bb50",
+     "display_name": "Veera Sekhar (Veera-CloudGenerativeAIEngineer_20261008_191655.pdf)",
+     "file_name": "Veera-CloudGenerativeAIEngineer_20261008_191655.pdf",
+     "match_percentage": 75
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:35:52.960Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3e5"
+  },
+  "external_job_id": "4c6dc5b8-e335-44a7-ae24-76d9fcf7741d",
+  "title": "AI Engineer Lead",
+  "company": "CipherMax LLC",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "70 - 80",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/4c6dc5b8-e335-44a7-ae24-76d9fcf7741d",
+  "application_url": "https://www.dice.com/job-detail/4c6dc5b8-e335-44a7-ae24-76d9fcf7741d",
+  "application_wizard_url": "https://www.dice.com/job-applications/4c6dc5b8-e335-44a7-ae24-76d9fcf7741d/wizard",
+  "description_raw": "Title: AI Engineer Lead at CipherMax LLC. Location: Remote (Remote). Employment Type: Full-time. Salary: 70 - 80. Posted: Today. Summary: AI Engineer Lead CipherMax LLC Remote \u2022 Today Full-time 70 - 80",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:36:02.356Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3e5",
+   "recommended_resume_id": "6ac809079df1100716b51a59",
+   "recommended_resume_name": "Jane Smith (AI_Engineer_v1_20261009_025005.docx)",
+   "recommended_resume_file_name": "AI_Engineer_v1_20261009_025005.docx",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "Docker",
+    "Kubernetes"
+   ],
+   "missing_skills": [],
+   "reason": "Jane Smith's resume aligns closely with the AI Engineer Lead role, showcasing relevant experience in AI engineering and strong proficiency in Python, which is essential for the position. Her experience with Docker and Kubernetes also indicates familiarity with modern deployment practices in AI applications.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e90c2080d267cf1bb3c",
+     "display_name": "Veera Sekhar (Veera-AIDataArchitect_20261008_191543.docx)",
+     "file_name": "Veera-AIDataArchitect_20261008_191543.docx",
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79e93c2080d267cf1bb3d",
+     "display_name": "Veera Sekhar (Veera-AIDeveloper_20261008_191552.pdf)",
+     "file_name": "Veera-AIDeveloper_20261008_191552.pdf",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:36:02.314Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3e6"
+  },
+  "external_job_id": "ba733186-54d0-4cc4-b396-c24dd7d1a4f8",
+  "title": "AI Engineer",
+  "company": "Mind Ware Inc",
+  "location": "Minnetonka, Minnesota",
+  "work_setting": "On-Site",
+  "salary": "Depends on Experience",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/ba733186-54d0-4cc4-b396-c24dd7d1a4f8",
+  "application_url": "https://www.dice.com/job-detail/ba733186-54d0-4cc4-b396-c24dd7d1a4f8",
+  "application_wizard_url": "https://www.dice.com/job-applications/ba733186-54d0-4cc4-b396-c24dd7d1a4f8/wizard",
+  "description_raw": "Title: AI Engineer at Mind Ware Inc. Location: Minnetonka, Minnesota (On-Site). Employment Type: Full-time. Salary: Depends on Experience. Posted: Today. Summary: AI Engineer Mind Ware Inc Minnetonka, Minnesota \u2022 Today Full-time Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:36:08.789Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3e6",
+   "recommended_resume_id": "6ac809079df1100716b51a59",
+   "recommended_resume_name": "Jane Smith (AI_Engineer_v1_20261009_025005.docx)",
+   "recommended_resume_file_name": "AI_Engineer_v1_20261009_025005.docx",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "Docker",
+    "Kubernetes"
+   ],
+   "missing_skills": [],
+   "reason": "Jane Smith's resume aligns closely with the AI Engineer role, showcasing relevant experience and skills in Python, which is essential for AI development. Her specialization in LLM systems and production RAG further enhances her fit for this position.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e90c2080d267cf1bb3c",
+     "display_name": "Veera Sekhar (Veera-AIDataArchitect_20261008_191543.docx)",
+     "file_name": "Veera-AIDataArchitect_20261008_191543.docx",
+     "match_percentage": 60
+    },
+    {
+     "resume_id": "6ac79e96c2080d267cf1bb3e",
+     "display_name": "Veera Sekhar (Veera-AIMLDataArchitect_20261008_191555.docx)",
+     "file_name": "Veera-AIMLDataArchitect_20261008_191555.docx",
+     "match_percentage": 60
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:36:08.744Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3e7"
+  },
+  "external_job_id": "b35f40fb-5316-48af-91eb-56476f30bfe8",
+  "title": "React.js Developer AI/ML, Python, Onsite - 70687",
+  "company": "PRIMUS Global Services Inc.",
+  "location": "Minnetonka, Minnesota",
+  "work_setting": "On-Site",
+  "salary": "$55.00 - 57.00",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/b35f40fb-5316-48af-91eb-56476f30bfe8",
+  "application_url": "https://www.dice.com/job-detail/b35f40fb-5316-48af-91eb-56476f30bfe8",
+  "application_wizard_url": "https://www.dice.com/job-applications/b35f40fb-5316-48af-91eb-56476f30bfe8/wizard",
+  "description_raw": "Title: React.js Developer AI/ML, Python, Onsite - 70687 at PRIMUS Global Services Inc.. Location: Minnetonka, Minnesota (On-Site). Employment Type: Contract. Salary: $55.00 - 57.00. Posted: Today. Summary: React.js Developer AI/ML, Python, Onsite - 70687 PRIMUS Global Services Inc. Minnetonka, Minnesota \u2022 Today Contract $55.00 - 57.00",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:36:16.153Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3e7",
+   "recommended_resume_id": "6ac79ed4c2080d267cf1bb5c",
+   "recommended_resume_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+   "recommended_resume_file_name": "Veera-PythonEngineer_20261008_191745.pdf",
+   "match_percentage": 80,
+   "matched_skills": [
+    "Python",
+    "React"
+   ],
+   "partial_matches": [
+    "AI/ML"
+   ],
+   "missing_skills": [
+    "React.js"
+   ],
+   "reason": "Veera Sekhar's resume demonstrates strong expertise in Python and React, which are critical for the React.js Developer role focused on AI/ML. The candidate's experience in developing scalable applications aligns well with the job requirements.",
+   "alternatives": [
+    {
+     "resume_id": "6ac0c78219f45aaa5a79af38",
+     "display_name": "Resume_Balaji_Viswanadh.pdf",
+     "file_name": "Resume_Balaji_Viswanadh.pdf",
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79ed2c2080d267cf1bb50",
+     "display_name": "Veera Sekhar (Veera-CloudGenerativeAIEngineer_20261008_191655.pdf)",
+     "file_name": "Veera-CloudGenerativeAIEngineer_20261008_191655.pdf",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:36:16.112Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3e8"
+  },
+  "external_job_id": "64311d7b-f80c-4b71-90b0-4ee5ef85e981",
+  "title": "Sr AWS Data Engineer with Strong Python/ PySpark with Snowflake Coretx ( Nearby GA , TX, FL , NJ)",
+  "company": "K Anand Corporation",
+  "location": "Hybrid in Dallas, Texas",
+  "work_setting": "Hybrid",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/64311d7b-f80c-4b71-90b0-4ee5ef85e981",
+  "application_url": "https://www.dice.com/job-detail/64311d7b-f80c-4b71-90b0-4ee5ef85e981",
+  "application_wizard_url": "https://www.dice.com/job-applications/64311d7b-f80c-4b71-90b0-4ee5ef85e981/wizard",
+  "description_raw": "Title: Sr AWS Data Engineer with Strong Python/ PySpark with Snowflake Coretx ( Nearby GA , TX, FL , NJ) at K Anand Corporation. Location: Hybrid in Dallas, Texas (Hybrid). Employment Type: Contract. Salary: Depends on Experience. Posted: Today. Summary: Sr AWS Data Engineer with Strong Python/ PySpark with Snowflake Coretx ( Nearby GA , TX, FL , NJ) K Anand Corporation Hybrid in Dallas, Texas \u2022 Today Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:36:24.231Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3e8",
+   "recommended_resume_id": "6ac79f0ac2080d267cf1bb63",
+   "recommended_resume_name": "Veera Sekhar (VeeraSekhar-AWS-Consultant_20261008_191751.docx)",
+   "recommended_resume_file_name": "VeeraSekhar-AWS-Consultant_20261008_191751.docx",
+   "match_percentage": 90,
+   "matched_skills": [
+    "AWS",
+    "Python",
+    "PySpark"
+   ],
+   "partial_matches": [
+    "SQL",
+    "Terraform"
+   ],
+   "missing_skills": [
+    "Snowflake"
+   ],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in AWS Data Engineering, with strong skills in Python and PySpark, which are critical for the role. Although Snowflake is a missing skill, the candidate's background in AWS and data engineering aligns closely with the job requirements.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ef1c2080d267cf1bb60",
+     "display_name": "Veera Sekhar (Veera-ProductOwner_20261008_191743.pdf)",
+     "file_name": null,
+     "match_percentage": 75
+    },
+    {
+     "resume_id": "6ac79ef0dc2080d267cf1bb64",
+     "display_name": "Veera Sekhar (Veera-SharePointDeveloper_20261008_191754.docx)",
+     "file_name": null,
+     "match_percentage": 70
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:36:24.188Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3e9"
+  },
+  "external_job_id": "3cf3de9b-777c-4799-99d0-97f05a0a2c76",
+  "title": "Sr. Gen AI Engineer/ Architect",
+  "company": "Rapport IT",
+  "location": "Hybrid in Irving, Texas",
+  "work_setting": "Hybrid",
+  "salary": "$80 - $90",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/3cf3de9b-777c-4799-99d0-97f05a0a2c76",
+  "application_url": "https://www.dice.com/job-detail/3cf3de9b-777c-4799-99d0-97f05a0a2c76",
+  "application_wizard_url": "https://www.dice.com/job-applications/3cf3de9b-777c-4799-99d0-97f05a0a2c76/wizard",
+  "description_raw": "Title: Sr. Gen AI Engineer/ Architect at Rapport IT. Location: Hybrid in Irving, Texas (Hybrid). Employment Type: Contract. Salary: $80 - $90. Posted: Today. Summary: Sr. Gen AI Engineer/ Architect Rapport IT Hybrid in Irving, Texas \u2022 Today Contract $80 - $90",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:36:30.429Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3e9",
+   "recommended_resume_id": "6ac79ed4c2080d267cf1bb51",
+   "recommended_resume_name": "Veera Sekhar (Veera-DataAnalyst_20261008_191658.docx)",
+   "recommended_resume_file_name": "Veera-DataAnalyst_20261008_191658.docx",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python",
+    "Generative AI",
+    "Azure AI Foundry",
+    "Azure OpenAI",
+    "Docker",
+    "Kubernetes"
+   ],
+   "partial_matches": [],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume aligns closely with the requirements for the Sr. Gen AI Engineer/Architect role, showcasing extensive experience in Generative AI and cloud technologies, particularly with Azure. His skills in Python and containerization technologies like Docker and Kubernetes further enhance his suitability for this position.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e93c2080d267cf1bb3d",
+     "display_name": "Veera Sekhar (Veera-AIDeveloper_20261008_191552.pdf)",
+     "file_name": "Veera-AIDeveloper_20261008_191552.pdf",
+     "match_percentage": 80
+    },
+    {
+     "resume_id": "6ac79ed2c2080d267cf1bb50",
+     "display_name": "Veera Sekhar (Veera-CloudGenerativeAIEngineer_20261008_191655.pdf)",
+     "file_name": "Veera-CloudGenerativeAIEngineer_20261008_191655.pdf",
+     "match_percentage": 75
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:36:30.388Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3ea"
+  },
+  "external_job_id": "84197900-7bb1-4335-bf9c-c23947fb2c68",
+  "title": "Machine Learning / AI Engineer - Remote",
+  "company": "Techaffinity Consulting",
+  "location": "Machine Learning / AI Engineer - Remote",
+  "work_setting": "Remote",
+  "salary": "55 - 60",
+  "employment_type": "Contract, Third Party",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/84197900-7bb1-4335-bf9c-c23947fb2c68",
+  "application_url": "https://www.dice.com/job-detail/84197900-7bb1-4335-bf9c-c23947fb2c68",
+  "application_wizard_url": "https://www.dice.com/job-applications/84197900-7bb1-4335-bf9c-c23947fb2c68/wizard",
+  "description_raw": "Title: Machine Learning / AI Engineer - Remote at Techaffinity Consulting. Location: Machine Learning / AI Engineer - Remote (Remote). Employment Type: Contract, Third Party. Salary: 55 - 60. Posted: Today. Summary: Machine Learning / AI Engineer - Remote Techaffinity Consulting Remote \u2022 Today Contract, Third Party 55 - 60",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:36:36.918Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3ea",
+   "recommended_resume_id": "6ac79ef1c2080d267cf1bb5a",
+   "recommended_resume_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+   "recommended_resume_file_name": "Veera-MLEngineer_20261008_191727.pdf",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python",
+    "Azure",
+    "AWS"
+   ],
+   "partial_matches": [
+    "TensorFlow",
+    "PyTorch",
+    "MLflow",
+    "Databricks"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume as a Machine Learning Engineer aligns closely with the job requirements for a Machine Learning / AI Engineer. He has extensive experience in AI-driven cloud solutions and relevant skills in Python and cloud platforms, making him a strong candidate for this role.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e93c2080d267cf1bb3d",
+     "display_name": "Veera Sekhar (Veera-AIDeveloper_20261008_191552.pdf)",
+     "file_name": "Veera-AIDeveloper_20261008_191552.pdf",
+     "match_percentage": 75
+    },
+    {
+     "resume_id": "6ac79ef5c2080d267cf1bb5c",
+     "display_name": "Veera Sekhar (Veera-Power_Platform_Developer_20261008_191729.docx)",
+     "file_name": "Veera-Power_Platform_Developer_20261008_191729.docx",
+     "match_percentage": 70
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:36:36.870Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3eb"
+  },
+  "external_job_id": "130abaf6-13b9-4f6f-a35c-cba1cb362a54",
+  "title": "Generative AI Engineer \u2013 RAG & LLM- 5+ yrs- Los Angeles, United States- Onsite",
+  "company": "iMedhas Consulting Services",
+  "location": "Los Angeles, California",
+  "work_setting": "On-Site",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract, Third Party",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/130abaf6-13b9-4f6f-a35c-cba1cb362a54",
+  "application_url": "https://www.dice.com/job-detail/130abaf6-13b9-4f6f-a35c-cba1cb362a54",
+  "application_wizard_url": "https://www.dice.com/job-applications/130abaf6-13b9-4f6f-a35c-cba1cb362a54/wizard",
+  "description_raw": "Title: Generative AI Engineer \u2013 RAG & LLM- 5+ yrs- Los Angeles, United States- Onsite at iMedhas Consulting Services. Location: Los Angeles, California (On-Site). Employment Type: Contract, Third Party. Salary: Depends on Experience. Posted: Today. Summary: Generative AI Engineer \u2013 RAG & LLM- 5+ yrs- Los Angeles, United States- Onsite iMedhas Consulting Services Los Angeles, California \u2022 Today Contract, Third Party Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:36:43.515Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3eb",
+   "recommended_resume_id": "6ac79ed5c2080d267cf1bb5c",
+   "recommended_resume_name": "Veera Sekhar (Veera-CloudGenerativeAIEngineer_20261008_191655.pdf)",
+   "recommended_resume_file_name": "Veera-CloudGenerativeAIEngineer_20261008_191655.pdf",
+   "match_percentage": 90,
+   "matched_skills": [
+    "Generative AI",
+    "LLMs"
+   ],
+   "partial_matches": [
+    "Python",
+    "Docker",
+    "Kubernetes"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume is the strongest fit for the Generative AI Engineer role due to his extensive experience in Generative AI and LLMs, which are critical for this position. His background in cloud technologies and AI-driven solutions aligns well with the job requirements.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79e93c2080d267cf1bb3d",
+     "display_name": "Veera Sekhar (Veera-AIDeveloper_20261008_191552.pdf)",
+     "file_name": "Veera-AIDeveloper_20261008_191552.pdf",
+     "match_percentage": 85
+    },
+    {
+     "resume_id": "6ac79ed4c2080d267cf1bb51",
+     "display_name": "Veera Sekhar (Veera-DataAnalyst_20261008_191658.docx)",
+     "file_name": "Veera-DataAnalyst_20261008_191658.docx",
+     "match_percentage": 80
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:36:43.464Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3ec"
+  },
+  "external_job_id": "3fc0ef4d-5f6c-44a1-be00-c7f862fae1a6",
+  "title": "Sr Python Full Stack Developer - W2 Contract",
+  "company": "XFORIA Inc",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract",
+  "posted_date": "Yesterday",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/3fc0ef4d-5f6c-44a1-be00-c7f862fae1a6",
+  "application_url": "https://www.dice.com/job-detail/3fc0ef4d-5f6c-44a1-be00-c7f862fae1a6",
+  "application_wizard_url": "https://www.dice.com/job-applications/3fc0ef4d-5f6c-44a1-be00-c7f862fae1a6/wizard",
+  "description_raw": "Title: Sr Python Full Stack Developer - W2 Contract at XFORIA Inc. Location: Remote (Remote). Employment Type: Contract. Salary: Depends on Experience. Posted: Yesterday. Summary: Sr Python Full Stack Developer - W2 Contract XFORIA Inc Remote \u2022 Yesterday Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:36:54.602Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3ec",
+   "recommended_resume_id": "6ac79ef4c2080d267cf1bb5c",
+   "recommended_resume_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+   "recommended_resume_file_name": "Veera-PythonEngineer_20261008_191745.pdf",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "JavaScript",
+    "C#",
+    "SQL",
+    "FastAPI",
+    "React",
+    "Node.js"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume as a Senior Full Stack Python Engineer aligns closely with the requirements of the Sr Python Full Stack Developer role. His extensive experience in Python and related technologies, along with a strong background in cloud solutions, makes him a highly suitable candidate.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb55",
+     "display_name": "Veera Sekhar (Veera-GCPCloudArchitect_20261008_191709.docx)",
+     "file_name": "Veera-GCPCloudArchitect_20261008_191709.docx",
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac79ef1c2080d267cf1bb5b",
+     "display_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+     "file_name": "Veera-MLEngineer_20261008_191727.pdf",
+     "match_percentage": 65
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:36:54.563Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae62bc53ac6ddc3e3ed"
+  },
+  "external_job_id": "e7d070dc-d32c-4794-8f4d-71edb96a1397",
+  "title": "Python Backend Developer with GIS and Analytics_Hybrid@Irving,TX",
+  "company": "HPTech Inc.",
+  "location": "Hybrid in Irving, Texas",
+  "work_setting": "Hybrid",
+  "salary": "Depends on Experience",
+  "employment_type": "Third Party, Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/e7d070dc-d32c-4794-8f4d-71edb96a1397",
+  "application_url": "https://www.dice.com/job-detail/e7d070dc-d32c-4794-8f4d-71edb96a1397",
+  "application_wizard_url": "https://www.dice.com/job-applications/e7d070dc-d32c-4794-8f4d-71edb96a1397/wizard",
+  "description_raw": "Title: Python Backend Developer with GIS and Analytics_Hybrid@Irving,TX at HPTech Inc.. Location: Hybrid in Irving, Texas (Hybrid). Employment Type: Third Party, Contract. Salary: Depends on Experience. Posted: Today. Summary: Python Backend Developer with GIS and Analytics_Hybrid@Irving,TX HPTech Inc. Hybrid in Irving, Texas \u2022 Today Third Party, Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:37:02.345Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae62bc53ac6ddc3e3ed",
+   "recommended_resume_id": "6ac79ef4c2080d267cf1bb5c",
+   "recommended_resume_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+   "recommended_resume_file_name": "Veera-PythonEngineer_20261008_191745.pdf",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "FastAPI",
+    "RESTful APIs"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in Python development, which aligns perfectly with the requirements for a Python Backend Developer. His background in building scalable cloud solutions and familiarity with RESTful APIs further supports his fit for the role.",
+   "alternatives": [
+    {
+     "resume_id": "6ac0c78219f45aaa5a79af38",
+     "display_name": "Resume_Balaji_Viswanadh.pdf",
+     "file_name": "Resume_Balaji_Viswanadh.pdf",
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac0ca0219f45aaa5a79af40",
+     "display_name": "Resume_Balaji_Viswanadh.pdf",
+     "file_name": "Resume_Balaji_Viswanadh.pdf",
+     "match_percentage": 70
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:37:02.304Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae72bc53ac6ddc3e3ee"
+  },
+  "external_job_id": "9b5ee275-0147-4654-b167-371410df01b3",
+  "title": "Python / Java Full Stack Developer (5-7 Years Experience)",
+  "company": "Nityo Infotech Corporation",
+  "location": "Alpharetta, Georgia",
+  "work_setting": "On-Site",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/9b5ee275-0147-4654-b167-371410df01b3",
+  "application_url": "https://www.dice.com/job-detail/9b5ee275-0147-4654-b167-371410df01b3",
+  "application_wizard_url": "https://www.dice.com/job-applications/9b5ee275-0147-4654-b167-371410df01b3/wizard",
+  "description_raw": "Title: Python / Java Full Stack Developer (5-7 Years Experience) at Nityo Infotech Corporation. Location: Alpharetta, Georgia (On-Site). Employment Type: Contract. Salary: Depends on Experience. Posted: Today. Summary: Python / Java Full Stack Developer (5-7 Years Experience) Nityo Infotech Corporation Alpharetta, Georgia \u2022 Today Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:37:09.885Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae72bc53ac6ddc3e3ee",
+   "recommended_resume_id": "6ac79ee0c2080d267cf1bb5f",
+   "recommended_resume_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+   "recommended_resume_file_name": "Veera-PythonEngineer_20261008_191745.pdf",
+   "match_percentage": 80,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "Java"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume demonstrates strong expertise in Python, which is a core requirement for the Python / Java Full Stack Developer role. Additionally, he has experience with Java, making him a suitable candidate despite not having extensive experience in Java. His extensive background in full-stack development aligns well with the job's expectations.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ee0c2080d267cf1bb61",
+     "display_name": "Veera Sekhar (Veera-JavaResume_20261008_191721.pdf)",
+     "file_name": "Veera-JavaResume_20261008_191721.pdf",
+     "match_percentage": 75
+    },
+    {
+     "resume_id": "6ac79ef1c2080d267cf1bb5b",
+     "display_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+     "file_name": "Veera-MLEngineer_20261008_191727.pdf",
+     "match_percentage": 70
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:37:09.837Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae72bc53ac6ddc3e3ef"
+  },
+  "external_job_id": "f3fc7390-9690-4bc9-a471-11923b742616",
+  "title": "Senior Developer - Java, AI, ML, Python on W2",
+  "company": "ASCII Group LLC",
+  "location": "Minnetonka, Minnesota",
+  "work_setting": "On-Site",
+  "salary": "60 - 65",
+  "employment_type": "Full-time",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/f3fc7390-9690-4bc9-a471-11923b742616",
+  "application_url": "https://www.dice.com/job-detail/f3fc7390-9690-4bc9-a471-11923b742616",
+  "application_wizard_url": "https://www.dice.com/job-applications/f3fc7390-9690-4bc9-a471-11923b742616/wizard",
+  "description_raw": "Title: Senior Developer - Java, AI, ML, Python on W2 at ASCII Group LLC. Location: Minnetonka, Minnesota (On-Site). Employment Type: Full-time. Salary: 60 - 65. Posted: Today. Summary: Senior Developer - Java, AI, ML, Python on W2 ASCII Group LLC Minnetonka, Minnesota \u2022 Today Full-time 60 - 65",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:37:19.013Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae72bc53ac6ddc3e3ef",
+   "recommended_resume_id": "6ac79ee9c2080d267cf1bb58",
+   "recommended_resume_name": "Veera Sekhar (Veera-IT_Delivery_Lead_II_20261008_191718.docx)",
+   "recommended_resume_file_name": "Veera-IT_Delivery_Lead_II_20261008_191718.docx",
+   "match_percentage": 90,
+   "matched_skills": [
+    "Java",
+    "Python"
+   ],
+   "partial_matches": [
+    "C#",
+    "SQL"
+   ],
+   "missing_skills": [
+    "AI",
+    "ML"
+   ],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in Java and Python, which are critical for the Senior Developer role. Although the resume lacks explicit mentions of AI and ML, the candidate's background in software engineering and related technologies suggests a strong potential for adaptation to AI/ML tasks.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ef1c2080d267cf1bb5c",
+     "display_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+     "file_name": null,
+     "match_percentage": 80
+    },
+    {
+     "resume_id": "6ac79ef0dc2080d267cf1bb64",
+     "display_name": "Veera Sekhar (Veera-SharePointDeveloper_20261008_191754.docx)",
+     "file_name": null,
+     "match_percentage": 75
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:37:18.970Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae72bc53ac6ddc3e3f0"
+  },
+  "external_job_id": "056b4f9b-5883-40b8-8fdb-f5e97ea487ae",
+  "title": "Python developer/data Engineer with Snowflake- Cortex (COCO), DBT ETC - 100% Onsite",
+  "company": "Innovative Information Technologies, Inc",
+  "location": "Orlando, Florida",
+  "work_setting": "On-Site",
+  "salary": "Depends on Experience",
+  "employment_type": "Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/056b4f9b-5883-40b8-8fdb-f5e97ea487ae",
+  "application_url": "https://www.dice.com/job-detail/056b4f9b-5883-40b8-8fdb-f5e97ea487ae",
+  "application_wizard_url": "https://www.dice.com/job-applications/056b4f9b-5883-40b8-8fdb-f5e97ea487ae/wizard",
+  "description_raw": "Title: Python developer/data Engineer with Snowflake- Cortex (COCO), DBT ETC - 100% Onsite at Innovative Information Technologies, Inc. Location: Orlando, Florida (On-Site). Employment Type: Contract. Salary: Depends on Experience. Posted: Today. Summary: Python developer/data Engineer with Snowflake- Cortex (COCO), DBT ETC - 100% Onsite Innovative Information Technologies, Inc Orlando, Florida \u2022 Today Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:37:27.548Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae72bc53ac6ddc3e3f0",
+   "recommended_resume_id": "6ac79ef1c2080d267cf1bb5a",
+   "recommended_resume_name": "Veera Sekhar (Veera-MLEngineer_20261008_191727.pdf)",
+   "recommended_resume_file_name": "Veera-MLEngineer_20261008_191727.pdf",
+   "match_percentage": 85,
+   "matched_skills": [
+    "Python"
+   ],
+   "partial_matches": [
+    "Snowflake",
+    "DBT"
+   ],
+   "missing_skills": [],
+   "reason": "Veera Sekhar's resume demonstrates extensive experience in Python development and data engineering, making him a strong candidate for the Python developer/data engineer role. His familiarity with Snowflake and DBT, although not explicitly required, aligns well with the job's focus on data engineering tools.",
+   "alternatives": [
+    {
+     "resume_id": "6ac79ef0c2080d267cf1bb5c",
+     "display_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+     "file_name": null,
+     "match_percentage": 80
+    },
+    {
+     "resume_id": "6ac79ef1c2080d267cf1bb62",
+     "display_name": "Veera Sekhar (Veera-SAP-AribaConsultant_20261008_191748.pdf)",
+     "file_name": null,
+     "match_percentage": 75
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:37:27.479Z"
+   }
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6aca5ae72bc53ac6ddc3e3f1"
+  },
+  "external_job_id": "a29fd332-13bb-46aa-a055-1273b284857d",
+  "title": "Python/Typescript Software Engineer",
+  "company": "Techaffinity Consulting",
+  "location": "Remote",
+  "work_setting": "Remote",
+  "salary": "Depends on Experience",
+  "employment_type": "Third Party, Contract",
+  "posted_date": "Today",
+  "is_easy_apply": true,
+  "is_applied": false,
+  "job_url": "https://www.dice.com/job-detail/a29fd332-13bb-46aa-a055-1273b284857d",
+  "application_url": "https://www.dice.com/job-detail/a29fd332-13bb-46aa-a055-1273b284857d",
+  "application_wizard_url": "https://www.dice.com/job-applications/a29fd332-13bb-46aa-a055-1273b284857d/wizard",
+  "description_raw": "Title: Python/Typescript Software Engineer at Techaffinity Consulting. Location: Remote (Remote). Employment Type: Third Party, Contract. Salary: Depends on Experience. Posted: Today. Summary: Python/Typescript Software Engineer Techaffinity Consulting Remote \u2022 Today Third Party, Contract Depends on Experience",
+  "search_profile_id": {
+   "$oid": "6aca512db7232951ffcd7220"
+  },
+  "user_id": "6ac0c99a19f45aaa5a79af3b",
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-10T15:33:57.230Z"
+  },
+  "updated_at": {
+   "$date": "2026-10-10T15:37:34.689Z"
+  },
+  "match_result": {
+   "job_id": "6aca5ae72bc53ac6ddc3e3f1",
+   "recommended_resume_id": "6ac79ef4c2080d267cf1bb5b",
+   "recommended_resume_name": "Veera Sekhar (Veera-PythonEngineer_20261008_191745.pdf)",
+   "recommended_resume_file_name": "Veera-PythonEngineer_20261008_191745.pdf",
+   "match_percentage": 90,
+   "matched_skills": [
+    "Python",
+    "TypeScript"
+   ],
+   "partial_matches": [
+    "JavaScript",
+    "FastAPI",
+    "Django"
+   ],
+   "missing_skills": [],
+   "reason": "This candidate has extensive experience as a Full Stack Python Engineer, with strong skills in both Python and TypeScript, making them an excellent fit for the Python/Typescript Software Engineer role. Their background in developing scalable cloud solutions aligns well with the job requirements.",
+   "alternatives": [
+    {
+     "resume_id": "6ac0c78219f45aaa5a79af38",
+     "display_name": "Resume_Balaji_Viswanadh.pdf",
+     "file_name": "Resume_Balaji_Viswanadh.pdf",
+     "match_percentage": 70
+    },
+    {
+     "resume_id": "6ac0ca0219f45aaa5a79af40",
+     "display_name": "Resume_Balaji_Viswanadh.pdf",
+     "file_name": "Resume_Balaji_Viswanadh.pdf",
+     "match_percentage": 70
+    }
+   ],
+   "created_at": {
+    "$date": "2026-10-10T15:37:34.644Z"
+   }
+  }
+ }
+]

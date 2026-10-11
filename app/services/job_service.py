@@ -191,7 +191,12 @@ class JobService:
     async def match_job(self, job_id: str, user_id: Optional[str] = None) -> JobResponse:
         if not ObjectId.is_valid(job_id):
             raise HTTPException(status_code=400, detail="Invalid job ID")
-        doc = await self.jobs_col.find_one({"_id": ObjectId(job_id)})
+        query = {"_id": ObjectId(job_id)}
+        if user_id:
+            u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            u_query.append(str(user_id))
+            query["user_id"] = {"$in": u_query}
+        doc = await self.jobs_col.find_one(query)
         if not doc:
             raise HTTPException(status_code=404, detail="Job not found")
 
@@ -202,13 +207,15 @@ class JobService:
 
         from app.schemas.job import JDStructuredData
         jd_data = JDStructuredData(**doc["description_structured"])
-        match_result = await matching_service.match_job_against_all_resumes(jd_data, job_id=job_id, user_id=user_id)
+        match_result = await matching_service.match_job_against_all_resumes(
+            jd_data, job_id=job_id, user_id=user_id or doc.get("user_id")
+        )
 
         updated = await self.jobs_col.find_one({"_id": ObjectId(job_id)})
         return format_job_doc(updated)
 
-    async def match_direct(self, req: DirectMatchRequest) -> Dict[str, Any]:
-        """Directly analyzes and matches a pasted Job Description against the 40 resumes."""
+    async def match_direct(self, req: DirectMatchRequest, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Directly analyzes and matches a pasted Job Description against the user's resume library."""
         jd_structured = await jd_service.analyze_job_description(req.description_raw, req.title or "")
         
         # Save temporary or direct job
@@ -228,18 +235,16 @@ class JobService:
             "description_raw": req.description_raw,
             "description_structured": jd_structured.model_dump(),
             "status": "MATCHED",
+            "user_id": user_id,
             "created_at": now,
             "updated_at": now
         }
-        res = await self.jobs_col.update_one(
-            {"external_job_id": ext_id},
-            {"$set": job_doc},
-            upsert=True
-        )
-        saved = await self.jobs_col.find_one({"external_job_id": ext_id})
+        owner_q = {"external_job_id": ext_id, "user_id": user_id}
+        await self.jobs_col.update_one(owner_q, {"$set": job_doc}, upsert=True)
+        saved = await self.jobs_col.find_one(owner_q)
         job_id = str(saved["_id"])
 
-        match_result = await matching_service.match_job_against_all_resumes(jd_structured, job_id=job_id)
+        match_result = await matching_service.match_job_against_all_resumes(jd_structured, job_id=job_id, user_id=user_id)
         
         return {
             "job_id": job_id,

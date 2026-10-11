@@ -32,6 +32,21 @@ def anyio_backend():
 
 
 @pytest.fixture(autouse=True)
+def fake_cloudinary_resume(monkeypatch, tmp_path):
+    """Resumes live in Cloudinary; stand in for the temp download so no network is used."""
+    from contextlib import asynccontextmanager
+    import app.services.application_runner as runner_module
+
+    @asynccontextmanager
+    async def fake_resume_file_for(resume):
+        path = tmp_path / (resume.get("file_name") or "resume.pdf")
+        path.write_bytes(b"%PDF-1.4 test resume")
+        yield path
+
+    monkeypatch.setattr(runner_module, "resume_file_for", fake_resume_file_for)
+
+
+@pytest.fixture(autouse=True)
 async def setup_env():
     os.environ["SESSION_ENCRYPTION_KEY"] = TEST_ENCRYPTION_KEY
     await application_queue_manager.stop_worker()
@@ -91,6 +106,7 @@ async def test_successful_application():
 
     # Insert test resume
     res_ins = await db.resumes.insert_one({
+        "user_id": user_id,
         "file_name": "test_resume.pdf",
         "display_name": "Test Candidate Resume",
         "file_path": "test_resume.pdf",
@@ -171,7 +187,7 @@ async def test_failed_application():
     sess = create_valid_session(user_id)
     await store.save_session(user_id, sess)
 
-    res_ins = await db.resumes.insert_one({"file_name": "test_resume.pdf", "display_name": "Test Candidate"})
+    res_ins = await db.resumes.insert_one({"user_id": user_id, "file_name": "test_resume.pdf", "display_name": "Test Candidate"})
     job_ins = await db.jobs.insert_one({
         "external_job_id": "test_job_fail",
         "title": "Software Engineer",
@@ -233,7 +249,7 @@ async def test_external_portal_detection():
     sess = create_valid_session(user_id)
     await store.save_session(user_id, sess)
 
-    res_ins = await db.resumes.insert_one({"file_name": "test_resume.pdf", "display_name": "Test Candidate"})
+    res_ins = await db.resumes.insert_one({"user_id": user_id, "file_name": "test_resume.pdf", "display_name": "Test Candidate"})
     job_ins = await db.jobs.insert_one({
         "external_job_id": "test_job_ext",
         "title": "Enterprise Architect",
@@ -297,7 +313,7 @@ async def test_captcha_detection():
     sess = create_valid_session(user_id)
     await store.save_session(user_id, sess)
 
-    res_ins = await db.resumes.insert_one({"file_name": "test_resume.pdf", "display_name": "Test Candidate"})
+    res_ins = await db.resumes.insert_one({"user_id": user_id, "file_name": "test_resume.pdf", "display_name": "Test Candidate"})
     job_ins = await db.jobs.insert_one({
         "external_job_id": "test_job_captcha",
         "title": "Cloud Architect",
@@ -372,7 +388,7 @@ async def test_session_expiration():
     )
     await store.save_session(user_id, sess)
 
-    res_ins = await db.resumes.insert_one({"file_name": "test_resume.pdf", "display_name": "Test Candidate"})
+    res_ins = await db.resumes.insert_one({"user_id": user_id, "file_name": "test_resume.pdf", "display_name": "Test Candidate"})
     job_ins = await db.jobs.insert_one({
         "external_job_id": "test_job_exp",
         "title": "DevOps Engineer",
@@ -416,7 +432,7 @@ async def test_queue_status_transitions():
     sess = create_valid_session(user_id)
     await store.save_session(user_id, sess)
 
-    res_ins = await db.resumes.insert_one({"file_name": "test_resume.pdf", "display_name": "Test Candidate"})
+    res_ins = await db.resumes.insert_one({"user_id": user_id, "file_name": "test_resume.pdf", "display_name": "Test Candidate"})
     job_ins = await db.jobs.insert_one({
         "external_job_id": "test_job_trans",
         "title": "Fullstack Engineer",
@@ -501,7 +517,7 @@ async def test_bounded_retries_transient_failure():
     sess = create_valid_session(user_id)
     await store.save_session(user_id, sess)
 
-    res_ins = await db.resumes.insert_one({"file_name": "test_resume.pdf", "display_name": "Test Candidate"})
+    res_ins = await db.resumes.insert_one({"user_id": user_id, "file_name": "test_resume.pdf", "display_name": "Test Candidate"})
     job_ins = await db.jobs.insert_one({
         "external_job_id": "test_job_timeout",
         "title": "Site Reliability Engineer",
@@ -573,7 +589,7 @@ async def test_api_queue_and_status_endpoints():
     db = get_database()
     user_id = "test_user_api"
 
-    res_ins = await db.resumes.insert_one({"file_name": "test_resume.pdf", "display_name": "Test Candidate"})
+    res_ins = await db.resumes.insert_one({"user_id": user_id, "file_name": "test_resume.pdf", "display_name": "Test Candidate"})
     job_ins = await db.jobs.insert_one({
         "external_job_id": "test_job_api",
         "title": "Backend API Engineer",

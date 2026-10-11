@@ -17,7 +17,8 @@ from app.services.dice_session_restorer import (
     SessionState
 )
 from app.services.settings_service import settings_service
-from app.services.matching_service import matching_service
+from app.services.matching_service import matching_service, user_resume_filter
+from app.services.cloudinary_service import resume_file_for
 from app.services.jd_service import jd_service
 
 logger = logging.getLogger(__name__)
@@ -233,19 +234,20 @@ class ApplicationRunner:
                 "failure_reason": f"Job document not found: {app_doc['job_id']}"
             }
 
-        # Resolve associated resume
+        target_uid = user_id or str(app_doc.get("user_id") or "default")
+
+        # Resolve associated resume (only from the application owner's library)
+        owner_filter = user_resume_filter(target_uid) or {"_id": None}
         resume_id = app_doc.get("resume_id")
-        resume = await self.resumes_col.find_one({"_id": resume_id}) if resume_id else None
+        resume = await self.resumes_col.find_one({"_id": resume_id, **owner_filter}) if resume_id else None
         if not resume:
-            resume = await self.resumes_col.find_one({})
+            resume = await self.resumes_col.find_one(owner_filter)
             if not resume:
                 return {
                     "success": False,
                     "status": ApplicationState.FAILED,
-                    "failure_reason": "No resume available in database."
+                    "failure_reason": "No resume available in your resume library."
                 }
-
-        target_uid = user_id or str(app_doc.get("user_id") or "default")
         user_profile = await settings_service.get_profile(user_id=target_uid)
 
         attempt = 0
@@ -363,22 +365,23 @@ class ApplicationRunner:
 
                 # Step 5 - 9: Open selected job, run workflow, upload resume, screener QA, detect result
                 target_url = job.get("application_url") or job.get("job_url", "")
-                resume_file_path = resume.get("file_path") or resume.get("file_name", "")
 
                 async def browser_status_cb(st: str):
                     await self._notify(status_callback, st, application_id)
                     await self._update_application_status_only(application_id, st)
 
-                res = await application_browser.prepare_application(
-                    application_url=target_url,
-                    resume_file_path=resume_file_path,
-                    user_profile=user_profile,
-                    mode=mode,
-                    page=page,
-                    profile_id=user_id,
-                    status_callback=browser_status_cb,
-                    should_close_page=False
-                )
+                # Resume is downloaded from Cloudinary to a temp file and deleted after the run
+                async with resume_file_for(resume) as resume_path:
+                    res = await application_browser.prepare_application(
+                        application_url=target_url,
+                        resume_file_path=str(resume_path),
+                        user_profile=user_profile,
+                        mode=mode,
+                        page=page,
+                        profile_id=user_id,
+                        status_callback=browser_status_cb,
+                        should_close_page=False
+                    )
 
                 final_status = res.get("status", ApplicationState.FAILED)
                 progress_steps.extend(res.get("progress_steps", []))

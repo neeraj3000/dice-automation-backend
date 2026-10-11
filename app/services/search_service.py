@@ -155,7 +155,11 @@ class SearchService:
                 continue
 
             ext_id = j["external_job_id"]
-            existing = await self.jobs_col.find_one({"external_job_id": ext_id})
+            # De-dupe per user: another user having this job must not block (or be modified by) this search
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(str(user_id)) else []
+            existing = await self.jobs_col.find_one(
+                {"external_job_id": ext_id, "user_id": {"$in": u_oids + [str(user_id)]}}
+            )
             if existing:
                 # Skip if already applied in database
                 if existing.get("status") == "APPLIED":
@@ -213,7 +217,7 @@ class SearchService:
                             job_record.get("description_raw", ""),
                             job_record.get("title", "")
                         )
-                        await matching_service.match_job_against_all_resumes(jd_data, job_id=jid)
+                        await matching_service.match_job_against_all_resumes(jd_data, job_id=jid, user_id=user_id)
                 except Exception as me:
                     logger.debug(f"Auto-matching notice for job {jid}: {me}")
 

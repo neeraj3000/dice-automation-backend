@@ -32,8 +32,8 @@ RUN python -m playwright install --with-deps chromium
 COPY . .
 
 # 5. Ensure runtime directories exist with permissive write permissions for container user
-RUN mkdir -p /app/resumes /app/data/browser_profiles /app/data/browser_profile \
-    && chmod -R 777 /app/data /app/resumes /ms-playwright
+RUN mkdir -p /app/temp_resumes /app/data/browser_profiles /app/data/browser_profile \
+    && chmod -R 777 /app/data /app/temp_resumes /ms-playwright
 
 # Expose default port
 EXPOSE 8000

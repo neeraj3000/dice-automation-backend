@@ -8,7 +8,7 @@ from app.database import get_database
 from app.schemas.application import ApplicationState
 from app.services.application_runner import application_runner
 from app.services.settings_service import settings_service
-from app.services.matching_service import matching_service
+from app.services.matching_service import matching_service, user_resume_filter
 from app.services.jd_service import jd_service
 
 logger = logging.getLogger(__name__)
@@ -168,9 +168,11 @@ class ApplicationQueueManager:
             if job.get("match_result") and job["match_result"].get("recommended_resume_id"):
                 resolved_resume_id = job["match_result"]["recommended_resume_id"]
 
+        # Resumes may only come from the applying user's own library
+        owner_filter = user_resume_filter(user_id if user_id != "default" else job.get("user_id")) or {"_id": None}
         resume = None
         if resolved_resume_id and ObjectId.is_valid(resolved_resume_id):
-            resume = await self.resumes_col.find_one({"_id": ObjectId(resolved_resume_id)})
+            resume = await self.resumes_col.find_one({"_id": ObjectId(resolved_resume_id), **owner_filter})
 
         if not resume:
             # Match against resume library
@@ -182,13 +184,14 @@ class ApplicationQueueManager:
 
             match_res = await matching_service.match_job_against_all_resumes(
                 jd_data if 'jd_data' in locals() else await jd_service.analyze_job_description(job.get("description_raw", "")),
-                job_id=str(job["_id"])
+                job_id=str(job["_id"]),
+                user_id=user_id if user_id != "default" else job.get("user_id"),
             )
             if match_res.recommended_resume_id and ObjectId.is_valid(match_res.recommended_resume_id):
-                resume = await self.resumes_col.find_one({"_id": ObjectId(match_res.recommended_resume_id)})
+                resume = await self.resumes_col.find_one({"_id": ObjectId(match_res.recommended_resume_id), **owner_filter})
 
         if not resume:
-            resume = await self.resumes_col.find_one({})
+            resume = await self.resumes_col.find_one(owner_filter)
             if not resume:
                 raise ValueError("No resumes found in database to apply with.")
 

@@ -1,0 +1,70 @@
+[
+ {
+  "_id": {
+   "$oid": "6acb38a140ad64a1ee6224cc"
+  },
+  "user_id": "6acb38a140ad64a1ee6224c7",
+  "external_job_id": "bad",
+  "title": "Data Engineer",
+  "company": "Acme",
+  "description_raw": "Python Spark SQL",
+  "description_structured": {
+   "role": "Data Engineer",
+   "required_skills": [
+    "Python",
+    "Spark",
+    "SQL"
+   ],
+   "preferred_skills": [],
+   "experience": "",
+   "responsibilities": [],
+   "education": null,
+   "certifications": [],
+   "cloud": [],
+   "tools": [],
+   "domain": null
+  },
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-11T07:20:01.512Z"
+  },
+  "match_result": {
+   "recommended_resume_id": "6acb38a140ad64a1ee6224ca",
+   "alternatives": []
+  }
+ },
+ {
+  "_id": {
+   "$oid": "6acb38a140ad64a1ee6224cd"
+  },
+  "user_id": "6acb38a140ad64a1ee6224c7",
+  "external_job_id": "orphan",
+  "title": "Data Engineer",
+  "company": "Acme",
+  "description_raw": "Python Spark SQL",
+  "description_structured": {
+   "role": "Data Engineer",
+   "required_skills": [
+    "Python",
+    "Spark",
+    "SQL"
+   ],
+   "preferred_skills": [],
+   "experience": "",
+   "responsibilities": [],
+   "education": null,
+   "certifications": [],
+   "cloud": [],
+   "tools": [],
+   "domain": null
+  },
+  "status": "MATCHED",
+  "created_at": {
+   "$date": "2026-10-11T07:20:01.550Z"
+  },
+  "match_result": {
+   "recommended_resume_id": "6acb38a140ad64a1ee6224ce",
+   "alternatives": []
+  }
+ }
+]

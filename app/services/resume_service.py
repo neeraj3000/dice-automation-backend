@@ -1,4 +1,3 @@
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +35,26 @@ class ResumeService:
         db = get_database()
         return db.resumes
 
+    async def _extract_text_from_bytes(self, content: bytes, file_name: str, ext: str) -> str:
+        from app.services.cloudinary_service import temp_file_from_bytes
+        try:
+            async with temp_file_from_bytes(content, file_name) as tmp_path:
+                return extract_text(tmp_path, ext)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to extract text from document: {str(e)}")
+
+    async def _store_in_cloudinary(self, content: bytes, user_id: Optional[Any], file_name: str) -> Dict[str, Any]:
+        from app.services.cloudinary_service import is_cloudinary_configured, upload_resume
+        if not is_cloudinary_configured():
+            raise HTTPException(status_code=503, detail="Resume storage (Cloudinary) is not configured on the server.")
+        try:
+            info = await upload_resume(content, user_id=str(user_id or "default"), file_name=file_name)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to upload resume to Cloudinary: {str(e)}")
+        if not info.get("cloudinary_url"):
+            raise HTTPException(status_code=502, detail="Failed to upload resume to Cloudinary.")
+        return info
+
     async def save_uploaded_resume(self, file: UploadFile, user_id: Optional[str] = None) -> ResumeResponse:
         original_name = file.filename or "unnamed_resume"
         ext = Path(original_name).suffix.lower()
@@ -48,15 +67,7 @@ class ResumeService:
         # Sanitize filename
         base_name = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', Path(original_name).stem)
         target_name = f"{base_name}{ext}"
-        target_path = settings.RESUMES_DIR / target_name
 
-        # If file already exists, make filename unique with timestamp
-        if target_path.exists():
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            target_name = f"{base_name}_{ts}{ext}"
-            target_path = settings.RESUMES_DIR / target_name
-
-        # Read and write content
         content = await file.read()
         file_size = len(content)
         if file_size > settings.MAX_FILE_SIZE_MB * 1024 * 1024:
@@ -65,36 +76,21 @@ class ResumeService:
                 detail=f"File exceeds maximum allowed size of {settings.MAX_FILE_SIZE_MB}MB"
             )
 
-        with open(target_path, "wb") as f:
-            f.write(content)
-
-        # Extract text
-        try:
-            raw_text = extract_text(target_path, ext)
-        except Exception as e:
-            if target_path.exists():
-                os.remove(target_path)
-            raise HTTPException(status_code=500, detail=f"Failed to extract text from document: {str(e)}")
+        # Extract text from a short-lived temp copy; nothing is kept on local disk
+        raw_text = await self._extract_text_from_bytes(content, target_name, ext)
 
         # Extract metadata (LLM or Heuristic)
         metadata = await llm_service.parse_resume_metadata(raw_text, target_name)
         now = datetime.now(timezone.utc)
 
-        # Upload to Cloudinary if configured
-        cloudinary_info = {}
-        try:
-            from app.services.cloudinary_service import is_cloudinary_configured, upload_resume
-            if is_cloudinary_configured():
-                cloudinary_info = await upload_resume(content, file_name=target_name)
-        except Exception:
-            pass
+        # Cloudinary is the only place the resume file is stored
+        cloudinary_info = await self._store_in_cloudinary(content, user_id, target_name)
 
         doc = {
             "user_id": user_id,
             "file_name": target_name,
             "file_type": ext.replace(".", ""),
             "file_size": file_size,
-            "file_path": str(target_path.relative_to(settings.RESUMES_DIR.parent)),
             "cloudinary_url": cloudinary_info.get("cloudinary_url"),
             "cloudinary_public_id": cloudinary_info.get("cloudinary_public_id"),
             "display_name": metadata.display_name or base_name.replace("_", " "),
@@ -203,38 +199,24 @@ class ResumeService:
         # Sanitize filename
         base_name = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', Path(original_name).stem)
         target_name = f"{base_name}{ext}"
-        target_path = settings.RESUMES_DIR / target_name
 
-        # Clean up old file if filename changed
-        old_rel_path = existing_doc.get("file_path", "")
-        if old_rel_path:
-            try:
-                old_full = settings.RESUMES_DIR.parent / old_rel_path
-                if old_full.exists() and old_full != target_path:
-                    os.remove(old_full)
-            except Exception:
-                pass
-
-        with open(target_path, "wb") as f:
-            f.write(content)
-
-        # Extract text
-        try:
-            raw_text = extract_text(target_path, ext)
-        except Exception as e:
-            if target_path.exists():
-                os.remove(target_path)
-            raise HTTPException(status_code=500, detail=f"Failed to extract text from document: {str(e)}")
+        raw_text = await self._extract_text_from_bytes(content, target_name, ext)
 
         # Extract metadata (LLM or Heuristic)
         metadata = await llm_service.parse_resume_metadata(raw_text, target_name)
         now = datetime.now(timezone.utc)
 
+        cloudinary_info = await self._store_in_cloudinary(content, existing_doc.get("user_id"), target_name)
+        if existing_doc.get("cloudinary_public_id"):
+            from app.services.cloudinary_service import delete_resume
+            await delete_resume(existing_doc["cloudinary_public_id"])
+
         update_dict = {
             "file_name": target_name,
             "file_type": ext.replace(".", ""),
             "file_size": file_size,
-            "file_path": str(target_path.relative_to(settings.RESUMES_DIR.parent)),
+            "cloudinary_url": cloudinary_info.get("cloudinary_url"),
+            "cloudinary_public_id": cloudinary_info.get("cloudinary_public_id"),
             "display_name": metadata.display_name or base_name.replace("_", " "),
             "target_role": metadata.target_role,
             "skills": metadata.skills,
@@ -246,7 +228,7 @@ class ResumeService:
 
         updated = await self.collection.find_one_and_update(
             {"_id": ObjectId(resume_id)},
-            {"$set": update_dict},
+            {"$set": update_dict, "$unset": {"file_path": ""}},
             return_document=True
         )
         return format_resume_doc(updated)
@@ -262,16 +244,6 @@ class ResumeService:
         doc = await self.collection.find_one(query)
         if not doc:
             return False
-
-        # Remove local file if present
-        try:
-            rel_path = doc.get("file_path", "")
-            if rel_path:
-                full_path = settings.RESUMES_DIR.parent / rel_path
-                if full_path.exists():
-                    os.remove(full_path)
-        except Exception:
-            pass
 
         # Remove from Cloudinary if hosted remotely
         if doc.get("cloudinary_public_id"):

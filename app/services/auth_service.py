@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from bson import ObjectId
@@ -19,6 +19,7 @@ from app.core.security import (
 from app.database import get_database
 
 REFRESH_COOKIE = "a2h_refresh"
+REFRESH_REUSE_GRACE_SECONDS = 30
 
 
 def utcnow() -> datetime:
@@ -129,10 +130,26 @@ async def refresh(token: str | None, response: Response) -> dict:
     except jwt.PyJWTError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired")
     db = get_database()
-    deleted = await db.refresh_tokens.find_one_and_delete({"jti_hash": hash_jti(payload["jti"])})
-    if not deleted:
+    jti_hash = hash_jti(payload["jti"])
+    now = utcnow()
+    # Rotate: mark the token as used rather than deleting it, so concurrent refreshes
+    # (React StrictMode double effects, several tabs) presenting the same cookie within
+    # a short grace window still succeed instead of logging the user out.
+    doc = await db.refresh_tokens.find_one_and_update(
+        {"jti_hash": jti_hash, "rotated_at": None},
+        {"$set": {
+            "rotated_at": now,
+            "expires_at": now + timedelta(seconds=REFRESH_REUSE_GRACE_SECONDS),
+        }},
+    )
+    if not doc:
+        doc = await db.refresh_tokens.find_one({
+            "jti_hash": jti_hash,
+            "rotated_at": {"$gte": now - timedelta(seconds=REFRESH_REUSE_GRACE_SECONDS)},
+        })
+    if not doc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session revoked")
-    sub = deleted["user_id"]
+    sub = doc["user_id"]
     query = {"_id": ObjectId(sub)} if ObjectId.is_valid(sub) else {"_id": sub}
     user = await db.users.find_one(query)
     if not user:

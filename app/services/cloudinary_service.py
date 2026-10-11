@@ -1,5 +1,6 @@
 import asyncio
 import io
+import os
 import re
 import shutil
 import uuid
@@ -27,15 +28,18 @@ def is_cloudinary_configured() -> bool:
 def _configure() -> None:
     global _configured
     if not _configured and is_cloudinary_configured():
-        if settings.cloudinary_url:
-            cloudinary.config(cloudinary_url=settings.cloudinary_url, secure=True)
-        else:
+        if settings.cloudinary_cloud_name and settings.cloudinary_api_key and settings.cloudinary_api_secret:
             cloudinary.config(
                 cloud_name=settings.cloudinary_cloud_name,
                 api_key=settings.cloudinary_api_key,
                 api_secret=settings.cloudinary_api_secret,
                 secure=True,
             )
+        else:
+            # cloudinary.config() ignores a cloudinary_url kwarg; the SDK only parses it from the env var
+            os.environ["CLOUDINARY_URL"] = settings.cloudinary_url
+            cloudinary.reset_config()
+            cloudinary.config(secure=True)
         _configured = True
 
 
@@ -107,3 +111,31 @@ async def temp_resume_file(url_or_path: str, file_name: str = "resume.pdf"):
             shutil.rmtree(folder, ignore_errors=True)
     else:
         yield local_p
+
+
+@asynccontextmanager
+async def resume_file_for(resume: dict):
+    """
+    Yields a local Path for a resume document: downloaded from Cloudinary into a
+    unique temp directory and deleted as soon as the caller is done with it.
+    """
+    url = resume.get("cloudinary_url")
+    if not url:
+        raise RuntimeError(
+            f"Resume '{resume.get('display_name') or resume.get('file_name')}' is not stored in Cloudinary. Please re-upload it."
+        )
+    async with temp_resume_file(url, resume.get("file_name") or "resume.pdf") as path:
+        yield path
+
+
+@asynccontextmanager
+async def temp_file_from_bytes(data: bytes, file_name: str = "resume.pdf"):
+    """Writes bytes to a unique temp file (e.g. for text extraction) and removes it afterwards."""
+    folder = settings.temp_resumes_dir / uuid.uuid4().hex
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / safe_filename(file_name)
+    try:
+        path.write_bytes(data)
+        yield path
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)

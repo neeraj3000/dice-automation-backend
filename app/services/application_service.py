@@ -8,7 +8,8 @@ from app.schemas.application import (
     ApplicationResponse, ApplicationAnswerSchema, ReviewItem, ApplicationCreate
 )
 from app.services.settings_service import settings_service
-from app.services.matching_service import matching_service
+from app.services.matching_service import matching_service, user_resume_filter
+from app.services.cloudinary_service import resume_file_for
 from app.services.jd_service import jd_service
 from app.browser.application_browser import application_browser
 
@@ -107,7 +108,8 @@ class ApplicationService:
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        # Select resume
+        # Select resume (only ever from the requesting user's own library)
+        owner_filter = user_resume_filter(getattr(req, "user_id", None) or job.get("user_id")) or {"_id": None}
         resume_id = req.resume_id
         if not resume_id:
             # Check if job already has recommended resume
@@ -116,7 +118,7 @@ class ApplicationService:
 
         resume = None
         if resume_id and ObjectId.is_valid(resume_id):
-            resume = await self.resumes_col.find_one({"_id": ObjectId(resume_id)})
+            resume = await self.resumes_col.find_one({"_id": ObjectId(resume_id), **owner_filter})
 
         # If no resume specified or the referenced resume was deleted/replaced, re-match against current active library
         if not resume:
@@ -131,15 +133,16 @@ class ApplicationService:
                 )
             match_res = await matching_service.match_job_against_all_resumes(
                 jd_data if 'jd_data' in locals() else await jd_service.analyze_job_description(job.get("description_raw", "")),
-                job_id=str(job["_id"])
+                job_id=str(job["_id"]),
+                user_id=getattr(req, "user_id", None) or job.get("user_id"),
             )
             resume_id = match_res.recommended_resume_id
             if resume_id and ObjectId.is_valid(resume_id):
-                resume = await self.resumes_col.find_one({"_id": ObjectId(resume_id)})
+                resume = await self.resumes_col.find_one({"_id": ObjectId(resume_id), **owner_filter})
 
-        # If matching still couldn't resolve, fallback to any valid resume in the library
+        # If matching still couldn't resolve, fallback to any resume in the user's own library
         if not resume:
-            resume = await self.resumes_col.find_one({})
+            resume = await self.resumes_col.find_one(owner_filter)
             if not resume:
                 raise HTTPException(status_code=400, detail="No matching resume found in library. Please upload a resume first.")
             resume_id = str(resume["_id"])
@@ -205,12 +208,13 @@ class ApplicationService:
 
         # Run Browser automation
         user_profile = await settings_service.get_profile(user_id=target_uid)
-        browser_res = await application_browser.prepare_application(
-            application_url=app_data["application_url"],
-            resume_file_path=resume.get("file_path", resume.get("file_name")),
-            user_profile=user_profile,
-            mode=app_data["mode"]
-        )
+        async with resume_file_for(resume) as resume_path:
+            browser_res = await application_browser.prepare_application(
+                application_url=app_data["application_url"],
+                resume_file_path=str(resume_path),
+                user_profile=user_profile,
+                mode=app_data["mode"]
+            )
 
         final_steps = app_data["progress_steps"] + browser_res["progress_steps"]
         update_fields = {
@@ -354,11 +358,12 @@ class ApplicationService:
         )
 
         # Run real browser submission
-        browser_res = await application_browser.submit_application_to_dice(
-            application_url=app_doc["application_url"],
-            resume_file_path=resume.get("file_path", resume.get("file_name")),
-            user_profile=user_profile
-        )
+        async with resume_file_for(resume) as resume_path:
+            browser_res = await application_browser.submit_application_to_dice(
+                application_url=app_doc["application_url"],
+                resume_file_path=str(resume_path),
+                user_profile=user_profile
+            )
 
         final_steps = steps + browser_res.get("progress_steps", [])
         final_status = browser_res["status"]
