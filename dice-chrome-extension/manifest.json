@@ -7,13 +7,26 @@
     "cookies",
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "*://*.dice.com/*",
-    "http://localhost:8000/*",
-    "http://127.0.0.1:8000/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
     "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.apply2hire.com/*",
+        "http://*.apply2hire.com/*"
+      ],
+      "js": ["content_bridge.js"],
+      "run_at": "document_idle"
+    }
   ],
   "action": {
     "default_popup": "popup.html",

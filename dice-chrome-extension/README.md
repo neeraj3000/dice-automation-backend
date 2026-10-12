@@ -33,29 +33,29 @@ A lightweight, secure **Manifest V3** companion extension for the **Dice Job App
 
 ---
 
-### Step 2: Open Dice and Log In
+### Step 2: Open Apply2Hire and Sign In
 
-1. Open a regular Chrome tab and navigate to [https://www.dice.com/dashboard/login](https://www.dice.com/dashboard/login).
-2. Sign in to your Dice account using your preferred method:
-   - Email & Password
-   - "Continue with Google"
-   - Complete any CAPTCHA or Two-Factor Authentication (SMS / Authenticator app) if prompted.
-3. Confirm you have landed on your Dice Dashboard (`https://www.dice.com/dashboard`) or candidate profile page.
+1. Open your browser and navigate to your Apply2Hire web dashboard (e.g., `http://localhost:5173` or `https://app.apply2hire.com`).
+2. Sign in to your Apply2Hire account.
+3. The extension automatically detects your authenticated Apply2Hire session in the background via the browser cookie bridge — **no pairing codes or manual tokens needed**.
 
 ---
 
-### Step 3: Synchronize with Backend
+### Step 3: Open Dice and Sign In
 
-1. Click the **Apply2Hire** extension icon (green "A") in your Chrome toolbar.
+1. Open a regular Chrome tab and navigate to [https://www.dice.com/dashboard/login](https://www.dice.com/dashboard/login).
+2. Sign in to your Dice account using your preferred method (Email, Google, 2FA, CAPTCHA).
+3. Confirm you have landed on your Dice Dashboard (`https://www.dice.com/dashboard`).
+
+---
+
+### Step 4: Click Sync in Extension
+
+1. Click the **Apply2Hire** extension icon in your Chrome toolbar.
 2. In the popup:
-   - The status badge will show the current backend connection status.
-   - If using a remote cloud backend (e.g. Render), click **⚙ Backend Connection Settings** and enter your backend URL (e.g., `https://your-app.onrender.com`), then click **Save Backend URL**. (Defaults to `http://localhost:8000` for local development).
-3. Click the primary button: **Sync Dice Account**.
-4. The extension will:
-   - Capture your authenticated `.dice.com` tokens.
-   - Transmit them securely to your backend's `/api/dice/session/sync` endpoint.
-   - Display a green confirmation banner: `Successfully synced! Dice account '<your_name>' is now connected.`
-   - Display your verified candidate email and timestamp.
+   - Your Apply2Hire user profile will be automatically detected and displayed as **ACTIVE**.
+   - Click the primary button: **Sync Dice Account**.
+3. The extension captures your authenticated Dice tokens and securely registers them with your Apply2Hire account.
 
 ---
 

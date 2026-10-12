@@ -204,3 +204,51 @@ async def test_headless_chromium_launch():
     await playwright_manager.close()
 
 
+@pytest.mark.anyio
+async def test_authenticated_dice_session_sync():
+    """Verify that syncing with an authenticated Bearer token saves the session directly under the user's ID."""
+    from app.core.security import create_access_token
+    from bson import ObjectId
+    from app.services.session_store import get_session_store
+
+    test_uid = str(ObjectId())
+    db = get_database()
+    if db is not None:
+        await db.users.insert_one({"_id": ObjectId(test_uid), "email": "testuser@example.com", "name": "Test User"})
+
+    token = create_access_token(test_uid)
+    transport = ASGITransport(app=app)
+    cookies = [{"name": "test_auth_token", "value": "xyz_user_token", "domain": ".dice.com", "path": "/"}]
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Sync with Authorization header
+        sync_res = await client.post(
+            "/api/dice/session/sync",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"cookies": cookies}
+        )
+        assert sync_res.status_code == 200
+        sync_data = sync_res.json()
+        assert sync_data["success"] is True
+        assert sync_data["connected"] is True
+
+        # Check status with the same user token
+        status_res = await client.get(
+            "/api/dice/session/status",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        assert status_res.status_code == 200
+        status_data = status_res.json()
+        assert status_data["connected"] is True
+
+        # Verify session was stored under test_uid in session store
+        store = get_session_store()
+        sess = await store.get_session(test_uid)
+        assert sess is not None
+        assert sess.is_connected is True
+
+    if db is not None:
+        await db.users.delete_one({"_id": ObjectId(test_uid)})
+        await store.delete_session(test_uid)
+
+

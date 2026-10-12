@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Cookie, Depends, Response
+from fastapi import APIRouter, Cookie, Depends, Header, Response
 
 from app.core.deps import get_current_user, rate_limit
 from app.schemas.auth import AuthOut, GoogleIn, LoginIn, RegisterIn, UserOut
@@ -25,8 +25,13 @@ async def google(body: GoogleIn, response: Response):
 
 
 @router.post("/refresh", response_model=AuthOut)
-async def refresh(response: Response, a2h_refresh: str | None = Cookie(default=None)):
-    return await auth_service.refresh(a2h_refresh, response)
+async def refresh(
+    response: Response,
+    a2h_refresh: str | None = Cookie(default=None),
+    x_refresh_token: str | None = Header(default=None, alias="X-Refresh-Token")
+):
+    token = a2h_refresh or x_refresh_token
+    return await auth_service.refresh(token, response)
 
 
 @router.post("/logout", status_code=204)

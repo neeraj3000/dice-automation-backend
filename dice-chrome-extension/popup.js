@@ -1,61 +1,126 @@
-// Dice Session Sync - Production Grade Popup Script
+// Apply2Hire - Session Sync Popup Script (Manifest V3)
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // Status Elements
-  const statusDot = document.getElementById("statusDot");
-  const statusText = document.getElementById("statusText");
-  const statusBadge = document.getElementById("statusBadge");
-  const badgeText = document.getElementById("badgeText");
-  const disconnectedNotice = document.getElementById("disconnectedNotice");
-  
-  // Account Details Elements
-  const accountDetails = document.getElementById("accountDetails");
-  const userAvatar = document.getElementById("userAvatar");
-  const detailUsername = document.getElementById("detailUsername");
-  const detailEmail = document.getElementById("detailEmail");
-  const detailVerified = document.getElementById("detailVerified");
+  // Navigation Tabs
+  const tabConnectBtn = document.getElementById("tabConnectBtn");
+  const tabSettingsBtn = document.getElementById("tabSettingsBtn");
+  const viewConnect = document.getElementById("viewConnect");
+  const viewSettings = document.getElementById("viewSettings");
 
-  // Alert Box Elements
+  // Alert Box
   const alertBox = document.getElementById("alertBox");
   const alertIcon = document.getElementById("alertIcon");
   const alertMessage = document.getElementById("alertMessage");
 
-  // Buttons & Controls
+  // Apply2Hire Auth Elements
+  const notLoggedInBox = document.getElementById("notLoggedInBox");
+  const loggedInBox = document.getElementById("loggedInBox");
+  const openAppBtn = document.getElementById("openAppBtn");
+  const authUrlCaption = document.getElementById("authUrlCaption");
+  const appUserAvatar = document.getElementById("appUserAvatar");
+  const appUserName = document.getElementById("appUserName");
+  const appUserEmail = document.getElementById("appUserEmail");
+
+  // Dice Session Elements
+  const diceDot = document.getElementById("diceDot");
+  const diceBadge = document.getElementById("diceBadge");
+  const diceBadgeText = document.getElementById("diceBadgeText");
+  const diceDetails = document.getElementById("diceDetails");
+  const diceCandidateName = document.getElementById("diceCandidateName");
+  const diceCandidateEmail = document.getElementById("diceCandidateEmail");
+  const diceVerifiedAt = document.getElementById("diceVerifiedAt");
+  const diceEmptyNote = document.getElementById("diceEmptyNote");
+
+  // Buttons
   const syncBtn = document.getElementById("syncBtn");
   const btnSpinner = document.getElementById("btnSpinner");
   const btnIcon = document.getElementById("btnIcon");
   const btnText = document.getElementById("btnText");
   const openDiceBtn = document.getElementById("openDiceBtn");
+  const disconnectBtn = document.getElementById("disconnectBtn");
 
-  // Settings Panel Elements
-  const settingsToggle = document.getElementById("settingsToggle");
-  const settingsPanel = document.getElementById("settingsPanel");
-  const settingsArrow = document.getElementById("settingsArrow");
+  // Settings Inputs
   const backendUrlInput = document.getElementById("backendUrlInput");
+  const webAppUrlInput = document.getElementById("webAppUrlInput");
   const saveSettingsBtn = document.getElementById("saveSettingsBtn");
-  const presetTags = document.querySelectorAll(".preset-tag");
 
-  // Safe chrome APIs check
   const hasChromeStorage = typeof chrome !== "undefined" && chrome.storage && chrome.storage.local;
   const hasChromeRuntime = typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage;
 
-  // Load configured backend URL from storage
+  const defaultConfig = (typeof APP_CONFIG !== "undefined")
+    ? APP_CONFIG.getDefaults()
+    : { backendUrl: "http://localhost:8000", webAppUrl: "http://localhost:5173" };
+
+  let currentWebAppUrl = defaultConfig.webAppUrl;
+  let currentBackendUrl = defaultConfig.backendUrl;
+
+  // Tab switching
+  tabConnectBtn.addEventListener("click", () => {
+    tabConnectBtn.classList.add("active");
+    tabSettingsBtn.classList.remove("active");
+    viewConnect.style.display = "flex";
+    viewSettings.style.display = "none";
+  });
+
+  tabSettingsBtn.addEventListener("click", () => {
+    tabSettingsBtn.classList.add("active");
+    tabConnectBtn.classList.remove("active");
+    viewSettings.style.display = "flex";
+    viewConnect.style.display = "none";
+  });
+
+  // Load configured URLs
   if (hasChromeStorage) {
-    chrome.storage.local.get(["backendUrl"], (result) => {
-      backendUrlInput.value = result.backendUrl || "http://localhost:8000";
+    chrome.storage.local.get(["backendUrl", "webAppUrl"], (result) => {
+      currentBackendUrl = result.backendUrl || defaultConfig.backendUrl;
+      currentWebAppUrl = result.webAppUrl || defaultConfig.webAppUrl;
+      backendUrlInput.value = currentBackendUrl;
+      webAppUrlInput.value = currentWebAppUrl;
+      if (authUrlCaption) authUrlCaption.textContent = currentWebAppUrl;
     });
   } else {
-    backendUrlInput.value = "http://localhost:8000";
+    backendUrlInput.value = currentBackendUrl;
+    webAppUrlInput.value = currentWebAppUrl;
   }
 
-  // Preset button clicks
-  presetTags.forEach((btn) => {
+  // Preset buttons
+  document.querySelectorAll("[data-backend]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const url = btn.getAttribute("data-url");
-      if (url) {
-        backendUrlInput.value = url;
-      }
+      backendUrlInput.value = btn.getAttribute("data-backend");
     });
+  });
+
+  document.querySelectorAll("[data-web]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      webAppUrlInput.value = btn.getAttribute("data-web");
+    });
+  });
+
+  // Save Settings
+  saveSettingsBtn.addEventListener("click", () => {
+    let bUrl = backendUrlInput.value.trim().replace(/\/+$/, "") || defaultConfig.backendUrl;
+    let wUrl = webAppUrlInput.value.trim().replace(/\/+$/, "") || defaultConfig.webAppUrl;
+    if (hasChromeStorage) {
+      chrome.storage.local.set({ backendUrl: bUrl, webAppUrl: wUrl }, () => {
+        currentBackendUrl = bUrl;
+        currentWebAppUrl = wUrl;
+        if (authUrlCaption) authUrlCaption.textContent = currentWebAppUrl;
+        showAlert("success", "Configuration saved. Refreshing session...");
+        tabConnectBtn.click();
+        loadSessionStatus();
+      });
+    }
+  });
+
+  // "Open Apply2Hire" button
+  openAppBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const targetUrl = currentWebAppUrl || "http://localhost:5173";
+    if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url: targetUrl });
+    } else {
+      window.open(targetUrl, "_blank");
+    }
   });
 
   // "Open Dice.com" link
@@ -68,34 +133,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Expand / collapse backend settings drawer
-  settingsToggle.addEventListener("click", () => {
-    const isHidden = settingsPanel.style.display === "none" || !settingsPanel.style.display;
-    settingsPanel.style.display = isHidden ? "flex" : "none";
-    if (settingsArrow) {
-      if (isHidden) {
-        settingsArrow.classList.add("expanded");
-      } else {
-        settingsArrow.classList.remove("expanded");
-      }
-    }
-  });
-
-  // Save backend URL
-  saveSettingsBtn.addEventListener("click", () => {
-    let url = backendUrlInput.value.trim().replace(/\/+$/, "");
-    if (!url) url = "http://localhost:8000";
-    if (hasChromeStorage) {
-      chrome.storage.local.set({ backendUrl: url }, () => {
-        showAlert("success", "Backend endpoint saved. Verifying connection...");
-        checkSessionStatus();
-      });
-    } else {
-      showAlert("success", "Backend endpoint saved (preview mode).");
-    }
-  });
-
-  // "Sync Dice Account" click handler
+  // "Sync Dice Account" click
   syncBtn.addEventListener("click", async () => {
     setLoading(true);
     hideAlert();
@@ -114,76 +152,223 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         if (chrome.runtime.lastError) {
           showAlert("error", `Extension connection error: ${chrome.runtime.lastError.message}`);
-          setStatus("error", "Offline", "Error");
           return;
         }
 
         if (response && response.success) {
           const d = response.data || {};
-          const userStr = d.username || d.email || "Candidate";
-          showAlert("success", `Sync successful! Account '${userStr}' is authenticated and live on your server.`);
-          setStatus("connected", "Connected", "Active");
-          showAccountDetails(d.username, d.email, d.last_verified_at || new Date().toISOString());
+          const candidateStr = d.username || d.email || "Candidate";
+          showAlert("success", `Sync successful! Dice account '${candidateStr}' linked to Apply2Hire.`);
+          showDiceConnected(d);
+          if (hasChromeStorage) {
+            chrome.storage.local.set({ dice_session: d });
+          }
+          loadSessionStatus();
         } else {
-          const err = (response && (response.error || (response.data && response.data.message))) || "Failed to capture active session.";
+          const err = (response && response.error) || "Failed to sync Dice session.";
           showAlert("error", err);
-          setStatus("disconnected", "Not Connected", "Offline");
+          if (response && response.require_app_auth) {
+            showApply2HireNotLoggedIn();
+          }
         }
       });
     } catch (err) {
       setLoading(false);
       showAlert("error", `Unexpected error: ${err.message}`);
-      setStatus("error", "Error", "Error");
     }
   });
 
-  // Check current backend session status on load
-  await checkSessionStatus();
+  // "Disconnect" click
+  disconnectBtn.addEventListener("click", () => {
+    if (!hasChromeRuntime) return;
+    disconnectBtn.disabled = true;
+    chrome.runtime.sendMessage({ action: "DISCONNECT_DICE" }, (resp) => {
+      disconnectBtn.disabled = false;
+      if (resp && resp.success) {
+        showAlert("info", "Dice session disconnected.");
+        loadSessionStatus();
+      } else {
+        showAlert("error", (resp && resp.error) || "Failed to disconnect.");
+      }
+    });
+  });
 
-  // Query backend for session health
-  async function checkSessionStatus() {
-    setStatus("syncing", "Checking...", "Checking");
-    if (!hasChromeRuntime) {
-      setStatus("disconnected", "Ready", "Ready");
-      return;
-    }
+  // In-page extractor to run on the active tab if Apply2Hire is open
+  function extractActiveTabSession() {
+    try {
+      let user = null;
+      let token = null;
 
-    chrome.runtime.sendMessage({ action: "GET_SESSION_STATUS" }, (response) => {
-      if (chrome.runtime.lastError) {
-        setStatus("error", "Offline", "Server Offline");
-        showAlert("info", "Backend server unreachable. Verify that backend is running on the configured URL.");
-        return;
+      const rawUser = localStorage.getItem("a2h_user");
+      if (rawUser) {
+        try { user = JSON.parse(rawUser); } catch (_) {}
+      }
+      token = localStorage.getItem("a2h_token");
+
+      if (!user) {
+        const rawSs = sessionStorage.getItem("a2h_user");
+        if (rawSs) {
+          try { user = JSON.parse(rawSs); } catch (_) {}
+        }
+      }
+      if (!token) token = sessionStorage.getItem("a2h_token");
+
+      // DOM inspection fallback
+      if (!user) {
+        const bodyText = document.body ? document.body.innerText : "";
+        const emailMatch = bodyText.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+        const welcomeMatch = bodyText.match(/Welcome back,\s*([A-Za-z0-9_-]+)/i);
+        if (emailMatch || welcomeMatch) {
+          user = {
+            id: "local_user",
+            name: welcomeMatch ? welcomeMatch[1] : "Candidate",
+            email: emailMatch ? emailMatch[1] : ""
+          };
+        }
       }
 
-      if (response && response.success && response.data) {
-        const data = response.data;
-        if (data.connected && data.status === "valid") {
-          setStatus("connected", "Connected", "Active");
-          showAccountDetails(data.username, data.email, data.last_verified_at);
-        } else {
-          setStatus("disconnected", "Not Connected", "Disconnected");
-          hideAccountDetails();
-        }
-      } else {
-        setStatus("disconnected", "Not Connected", "Disconnected");
-        hideAccountDetails();
+      return { user, token };
+    } catch (e) {
+      return { user: null, token: null };
+    }
+  }
+
+  // Initial load: Fast checks
+  if (hasChromeStorage) {
+    chrome.storage.local.get(["a2h_user", "a2h_token", "dice_session"], (stored) => {
+      if (stored && stored.a2h_user && (stored.a2h_user.name || stored.a2h_user.email)) {
+        showApply2HireLoggedIn(stored.a2h_user);
+      }
+      if (stored && stored.dice_session && stored.dice_session.connected) {
+        showDiceConnected(stored.dice_session);
       }
     });
   }
 
-  function setStatus(type, headerLabel, badgeLabel) {
-    if (statusDot) {
-      statusDot.className = `status-dot ${type}`;
+  // Check active tab directly (Apply2Hire website)
+  try {
+    if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = tabs && tabs[0];
+      if (activeTab && activeTab.id && activeTab.url && (
+        activeTab.url.includes("localhost:5173") ||
+        activeTab.url.includes("localhost:3000") ||
+        activeTab.url.includes("127.0.0.1:5173") ||
+        activeTab.url.includes("apply2hire")
+      )) {
+        try {
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: activeTab.id },
+            func: extractActiveTabSession,
+          });
+          if (results && results[0] && results[0].result && results[0].result.user) {
+            const { user, token } = results[0].result;
+            showApply2HireLoggedIn(user);
+            if (hasChromeStorage) {
+              chrome.storage.local.set({ a2h_user: user, a2h_token: token || "session_token" });
+            }
+            if (hasChromeRuntime) {
+              chrome.runtime.sendMessage({ action: "SYNC_APP_AUTH", user, token: token || "session_token" });
+            }
+          }
+        } catch (tabScanErr) {
+          console.debug("Active tab script extraction notice:", tabScanErr);
+        }
+      }
     }
-    if (statusText) {
-      statusText.textContent = headerLabel;
-    }
-    if (statusBadge) {
-      statusBadge.className = `status-badge ${type}`;
-    }
-    if (badgeText) {
-      badgeText.textContent = badgeLabel || headerLabel;
-    }
+  } catch (err) {
+    console.debug("Active tab inspection notice:", err);
+  }
+
+  await loadSessionStatus();
+
+  // Helper to load combined session status from background service worker
+  async function loadSessionStatus() {
+    if (!hasChromeRuntime) return;
+
+    chrome.runtime.sendMessage({ action: "GET_SESSION_STATUS" }, (response) => {
+      if (chrome.runtime.lastError) {
+        showAlert("error", "Cannot connect to extension background service.");
+        return;
+      }
+
+      if (response && response.success && response.data) {
+        const { app_auth, dice } = response.data;
+
+        // 1. Render Apply2Hire state
+        if (app_auth && app_auth.authenticated && app_auth.user) {
+          showApply2HireLoggedIn(app_auth.user);
+        } else {
+          // If we already detected the user from storage/active tab, keep it
+          if (!loggedInBox || (loggedInBox.style.display !== "flex" && loggedInBox.style.display !== "block")) {
+            showApply2HireNotLoggedIn();
+          }
+        }
+
+        // 2. Render Dice state
+        if (dice && dice.connected) {
+          showDiceConnected(dice);
+        } else {
+          if (hasChromeStorage) {
+            chrome.storage.local.get(["dice_session"], (stored) => {
+              if (stored && stored.dice_session && stored.dice_session.connected) {
+                showDiceConnected(stored.dice_session);
+              } else {
+                showDiceDisconnected();
+              }
+            });
+          } else {
+            showDiceDisconnected();
+          }
+        }
+      }
+    });
+  }
+
+  function showApply2HireLoggedIn(user) {
+    notLoggedInBox.style.display = "none";
+    loggedInBox.style.display = "block";
+    const firstName = user.name ? user.name.trim().split(/\s+/)[0] : "there";
+    const heroName = document.getElementById("heroWelcomeName");
+    if (heroName) heroName.textContent = firstName;
+    const heroEmail = document.getElementById("heroConnectedEmail");
+    if (heroEmail) heroEmail.textContent = user.email ? `Connected: ${user.email}` : "Connected";
+    if (appUserName) appUserName.textContent = user.name || "Candidate User";
+    if (appUserEmail) appUserEmail.textContent = user.email || "-";
+    if (appUserAvatar) appUserAvatar.textContent = getInitials(user.name, user.email);
+    syncBtn.disabled = false;
+  }
+
+  function showApply2HireNotLoggedIn() {
+    loggedInBox.style.display = "none";
+    notLoggedInBox.style.display = "flex";
+    if (authUrlCaption) authUrlCaption.textContent = currentWebAppUrl;
+  }
+
+  function showDiceConnected(dice) {
+    if (!dice) return;
+    diceDot.className = "status-dot connected";
+    diceBadge.className = "status-badge badge-success";
+    diceBadgeText.textContent = "CONNECTED";
+    const rawName = (dice.username || dice.name || "").trim();
+    diceCandidateName.textContent = rawName && rawName !== "default" ? rawName : "Active Candidate";
+    const rawEmail = (dice.email || "").trim();
+    diceCandidateEmail.textContent = rawEmail || "Session linked";
+    diceVerifiedAt.textContent = dice.last_verified_at ? formatDate(dice.last_verified_at) : "Active";
+    diceDetails.style.display = "flex";
+    diceEmptyNote.style.display = "none";
+    disconnectBtn.style.display = "inline-flex";
+    btnText.textContent = "Sync Dice Again";
+  }
+
+  function showDiceDisconnected() {
+    diceDot.className = "status-dot disconnected";
+    diceBadge.className = "status-badge badge-neutral";
+    diceBadgeText.textContent = "Not Connected";
+    diceDetails.style.display = "none";
+    diceEmptyNote.style.display = "block";
+    disconnectBtn.style.display = "none";
+    btnText.textContent = "Sync Dice Account";
   }
 
   function setLoading(loading) {
@@ -192,13 +377,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     btnIcon.style.display = loading ? "none" : "inline-block";
     btnText.textContent = loading ? "Syncing with Server..." : "Sync Dice Account";
     if (loading) {
-      setStatus("syncing", "Syncing...", "Syncing");
+      diceDot.className = "status-dot syncing";
     }
   }
 
   function showAlert(type, text) {
     alertBox.className = `alert-banner ${type}`;
-    
     let svgIcon = "";
     if (type === "success") {
       svgIcon = `<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>`;
@@ -207,7 +391,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     } else {
       svgIcon = `<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>`;
     }
-
     alertIcon.innerHTML = svgIcon;
     alertMessage.textContent = text;
     alertBox.style.display = "flex";
@@ -228,42 +411,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (email && email.includes("@")) {
       return email.slice(0, 2).toUpperCase();
     }
-    return "DC";
-  }
-
-  function showAccountDetails(username, email, lastVerified) {
-    detailUsername.textContent = username || "(Candidate)";
-    detailEmail.textContent = email || "-";
-    detailVerified.textContent = lastVerified ? formatDate(lastVerified) : "Just now";
-    
-    if (userAvatar) {
-      userAvatar.textContent = getInitials(username, email);
-    }
-    
-    if (disconnectedNotice) {
-      disconnectedNotice.style.display = "none";
-    }
-    accountDetails.style.display = "flex";
-  }
-
-  function hideAccountDetails() {
-    accountDetails.style.display = "none";
-    if (disconnectedNotice) {
-      disconnectedNotice.style.display = "flex";
-    }
+    return "AH";
   }
 
   function formatDate(isoStr) {
     try {
       const dt = new Date(isoStr);
       if (isNaN(dt.getTime())) return isoStr;
-      
       const now = new Date();
       const diffSec = Math.floor((now - dt) / 1000);
       if (diffSec < 60) return "Just now";
       if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
       if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-
       return dt.toLocaleDateString([], { month: "short", day: "numeric" }) + " " +
              dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     } catch (_) {
