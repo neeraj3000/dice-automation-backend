@@ -106,7 +106,11 @@ async def google_login(credential: str, response: Response) -> dict:
     if user:
         await db.users.update_one(
             {"_id": user["_id"]},
-            {"$set": {"google_sub": info["sub"], "avatar": info.get("picture") or user.get("avatar")}},
+            # Keep a photo the user uploaded themselves; only refresh the Google picture otherwise.
+            {"$set": {
+                "google_sub": info["sub"],
+                "avatar": user.get("avatar") if user.get("avatar_public_id") else (info.get("picture") or user.get("avatar")),
+            }},
         )
         user = await db.users.find_one({"_id": user["_id"]})
     else:

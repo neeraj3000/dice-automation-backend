@@ -17,6 +17,8 @@ class UserProfileSchema(BaseModel):
     work_authorization: str = "US Citizen" # US Citizen, Green Card, H1B, etc.
     willing_to_relocate: bool = False
     custom_answers: Dict[str, str] = {}
+    avatar: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 class AppSettingsSchema(BaseModel):
     model_config = ConfigDict(extra="allow")

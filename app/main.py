@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import connect_db, close_db, get_database
-from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards
+from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards, avatar as avatar_api
 
 
 @asynccontextmanager
@@ -154,6 +154,7 @@ routers = [
     dice_session.router,
     auth.router,
     boards.router,
+    avatar_api.router,
 ]
 
 # Include Routers at root (available directly at http://localhost:8000/)

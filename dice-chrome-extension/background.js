@@ -1,6 +1,7 @@
 // Dice Session Sync - Background Service Worker (Manifest V3)
 
-const DEFAULT_BACKEND_URL = "https://app-apply2hire-backend-cus-fvdbewb7gkczgecb.centralus-01.azurewebsites.net";
+// const DEFAULT_BACKEND_URL = "https://app-apply2hire-backend-cus-fvdbewb7gkczgecb.centralus-01.azurewebsites.net";
+const DEFAULT_BACKEND_URL = "http://localhost:8000/";
 
 const TRACKING_COOKIE_PREFIXES = [
   "_ga", "_gid", "_gat", "_gcl", "_uet", "_mkto", "_gd_",

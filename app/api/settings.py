@@ -10,6 +10,24 @@ from app.services.settings_service import settings_service
 
 router = APIRouter(tags=["Settings & Profile"])
 
+AVATAR_FIELDS = ("avatar", "avatar_url", "avatar_public_id")
+
+
+async def _resolve_avatar(user: Optional[dict]) -> dict:
+    """The avatar to show: the user's uploaded photo (db.profiles, written by /avatar)
+    wins over the Google picture on the user record."""
+    if not user:
+        return {}
+    db = get_database()
+    custom = None
+    if db is not None:
+        custom = await db.profiles.find_one({"user_id": str(user["_id"])}, {"avatar_url": 1, "avatar_public_id": 1})
+    if custom and custom.get("avatar_url"):
+        return {"avatar": custom["avatar_url"], "avatar_url": custom["avatar_url"], "avatar_public_id": custom.get("avatar_public_id")}
+    if user.get("avatar"):
+        return {"avatar": user["avatar"], "avatar_url": user["avatar"], "avatar_public_id": None}
+    return {"avatar": None, "avatar_url": None, "avatar_public_id": None}
+
 @router.get("/profile", response_model=UserProfileSchema)
 async def get_user_profile(user: Optional[dict] = Depends(get_current_user_optional)):
     uid = str(user["_id"]) if user else "default"
@@ -21,12 +39,20 @@ async def get_user_profile(user: Optional[dict] = Depends(get_current_user_optio
         if name_parts:
             prof.first_name = name_parts[0]
             prof.last_name = " ".join(name_parts[1:])
+    for k, v in (await _resolve_avatar(user)).items():
+        setattr(prof, k, v)
     return prof
 
 @router.put("/profile", response_model=UserProfileSchema)
 async def update_user_profile(profile: UserProfileSchema, user: Optional[dict] = Depends(get_current_user_optional)):
     uid = str(user["_id"]) if user else "default"
-    return await settings_service.update_profile(profile, user_id=uid)
+    # The avatar is owned by /avatar; never persist a (possibly stale) copy sent with the form.
+    for k in AVATAR_FIELDS:
+        setattr(profile, k, None)
+    saved = await settings_service.update_profile(profile, user_id=uid)
+    for k, v in (await _resolve_avatar(user)).items():
+        setattr(saved, k, v)
+    return saved
 
 @router.get("/settings")
 async def get_app_settings(user: Optional[dict] = Depends(get_current_user_optional)):
@@ -45,6 +71,7 @@ async def get_app_settings(user: Optional[dict] = Depends(get_current_user_optio
     profile_dict["linkedin"] = profile_dict.get("linkedin_url", "")
     profile_dict["github"] = profile_dict.get("github_url", "")
     profile_dict["portfolio"] = profile_dict.get("portfolio_url", "")
+    profile_dict.update(await _resolve_avatar(user))
     try:
         profile_dict["years_experience"] = int(profile_dict.get("years_of_experience", 0)) if profile_dict.get("years_of_experience") else None
     except Exception:
@@ -71,6 +98,8 @@ async def update_app_settings(body: Dict[str, Any] = Body(...), user: Optional[d
         if "authorized_to_work" in p_raw:
             p_raw["work_authorization"] = "US Citizen" if p_raw["authorized_to_work"] else "Requires Sponsorship"
 
+        for k in AVATAR_FIELDS:
+            p_raw.pop(k, None)
         prof = UserProfileSchema(**p_raw)
         await settings_service.update_profile(prof, user_id=uid)
 
