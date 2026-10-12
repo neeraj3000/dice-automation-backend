@@ -3,7 +3,22 @@
 // Continuously bridges authentication status to extension storage & background service
 
 (function () {
+  function isAuthPage() {
+    const path = (window.location.pathname || "").toLowerCase();
+    return (
+      path.includes("/login") ||
+      path.includes("/signin") ||
+      path.includes("/register") ||
+      path.includes("/signup")
+    );
+  }
+
   function getLocalAuth() {
+    // If the browser is on the login/signup page, the user is explicitly NOT authenticated
+    if (isAuthPage()) {
+      return { user: null, token: null, isLoggedOut: true };
+    }
+
     try {
       let user = null;
       let token = null;
@@ -17,7 +32,7 @@
 
       token = localStorage.getItem("a2h_token");
 
-      // Fallback: Check if user is present in sessionStorage
+      // Check user in sessionStorage
       if (!user) {
         const rawSsUser = sessionStorage.getItem("a2h_user");
         if (rawSsUser) {
@@ -30,27 +45,47 @@
         token = sessionStorage.getItem("a2h_token");
       }
 
-      // Fallback: DOM inspection for logged in greeting
-      if (!user) {
-        const bodyText = document.body ? document.body.innerText : "";
-        const emailMatch = bodyText.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-        const welcomeMatch = bodyText.match(/Welcome back,\s*([A-Za-z0-9_-]+)/i);
-        if (emailMatch || welcomeMatch) {
-          user = {
-            id: "local_user",
-            name: welcomeMatch ? welcomeMatch[1] : "Candidate",
-            email: emailMatch ? emailMatch[1] : ""
-          };
+      // Check Redux or generic auth keys in localStorage
+      if (!token || !user) {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k) continue;
+          const val = localStorage.getItem(k);
+          if (typeof val !== "string") continue;
+          if (!token && val.startsWith("eyJ") && val.split(".").length === 3) {
+            token = val;
+          }
+          if (!user && (k.toLowerCase().includes("user") || k.toLowerCase().includes("auth"))) {
+            try {
+              const parsed = JSON.parse(val);
+              if (parsed && (parsed.email || parsed.name || (parsed.user && parsed.user.email))) {
+                user = parsed.user || parsed;
+              }
+            } catch (_) {}
+          }
         }
       }
 
-      return { user, token };
+      // Never infer login from "Welcome back" on the DOM
+      return { user, token, isLoggedOut: false };
     } catch (e) {
-      return { user: null, token: null };
+      return { user: null, token: null, isLoggedOut: false };
     }
   }
 
   function broadcastAuthToExtension() {
+    if (isAuthPage()) {
+      // Actively clear cached auth when visiting /login
+      if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+        try {
+          chrome.runtime.sendMessage({ action: "CLEAR_APP_AUTH" }, () => {
+            if (chrome.runtime.lastError) {}
+          });
+        } catch (_) {}
+      }
+      return;
+    }
+
     const auth = getLocalAuth();
     if (auth.user && (auth.user.email || auth.user.name)) {
       if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
@@ -60,9 +95,16 @@
             user: auth.user,
             token: auth.token || "session_token"
           }, () => {
-            if (chrome.runtime.lastError) {
-              // Ignore background worker inactive errors
-            }
+            if (chrome.runtime.lastError) {}
+          });
+        } catch (_) {}
+      }
+    } else {
+      // Non-auth page with no credentials present in storage -> clear
+      if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+        try {
+          chrome.runtime.sendMessage({ action: "CLEAR_APP_AUTH" }, () => {
+            if (chrome.runtime.lastError) {}
           });
         } catch (_) {}
       }
@@ -85,7 +127,7 @@
           });
         } catch (_) {}
       }
-    } else if (event.data && event.data.type === "APPLY2HIRE_AUTH_LOGOUT") {
+    } else if (event.data && (event.data.type === "APPLY2HIRE_AUTH_LOGOUT" || event.data.type === "LOGOUT")) {
       if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
         try {
           chrome.runtime.sendMessage({ action: "CLEAR_APP_AUTH" });
@@ -104,7 +146,8 @@
     });
   }
 
-  // 4. Periodic sync on focus
+  // 4. Periodic sync on focus & storage change
   window.addEventListener("focus", broadcastAuthToExtension);
-  setInterval(broadcastAuthToExtension, 15000);
+  window.addEventListener("storage", broadcastAuthToExtension);
+  setInterval(broadcastAuthToExtension, 10000);
 })();

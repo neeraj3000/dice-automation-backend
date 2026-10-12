@@ -416,38 +416,57 @@ async def test_api_get_dice_session_status():
 # 10. API Endpoint: POST /api/dice/session/sync (Extension Sync Flow)
 @pytest.mark.anyio
 async def test_api_post_dice_session_sync():
+    from app.core.security import create_access_token
+    from bson import ObjectId
+
+    test_uid = str(ObjectId())
+    db = get_database()
+    if db is not None:
+        await db.users.insert_one({"_id": ObjectId(test_uid), "email": "sync_user@example.com", "name": "Sync User"})
+    token = create_access_token(test_uid)
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # A: Empty / invalid sync payload rejected
+        # A: Unauthenticated sync attempt must return 401 Unauthorized (Security Enforcement)
         empty_payload = {
             "cookies": [{"name": "_ga", "value": "tracking_only", "domain": ".dice.com"}],
             "local_storage": {}
         }
-        res_empty = await client.post("/api/dice/session/sync", json=empty_payload)
+        res_unauth = await client.post("/api/dice/session/sync", json=empty_payload)
+        assert res_unauth.status_code == 401
+
+        # B: Authenticated call with empty/invalid auth tokens rejected by business logic
+        res_empty = await client.post(
+            "/api/dice/session/sync",
+            headers={"Authorization": f"Bearer {token}"},
+            json=empty_payload
+        )
         assert res_empty.status_code == 200
         data_empty = res_empty.json()
         assert data_empty["success"] is False
         assert data_empty["connected"] is False
         assert data_empty["status"] == "LOGIN_REQUIRED"
 
-        # B: Authentic Dice session synced
+        # C: Authentic Dice session synced under caller's authenticated user ID
         valid_jwt = make_jwt(int(time.time()) + 7200, email="extension_user@dice.com")
         sync_payload = {
             "cookies": [
                 {"name": "identity", "value": valid_jwt, "domain": ".dice.com", "path": "/"},
                 {"name": "refreshToken", "value": "rt_sync_token_456", "domain": ".dice.com", "path": "/"},
-                # Tracking cookie that should be filtered out
                 {"name": "_ga", "value": "GA_track_id", "domain": ".dice.com"}
             ],
             "local_storage": {
                 "CognitoIdentityServiceProvider.app.user.idToken": valid_jwt,
                 "CognitoIdentityServiceProvider.app.user.refreshToken": "rt_sync_token_456",
                 "CognitoIdentityServiceProvider.app.LastAuthUser": "extension_user@dice.com"
-            },
-            "user_id": "test_restorer_sync_user"
+            }
         }
 
-        res_sync = await client.post("/api/dice/session/sync", json=sync_payload)
+        res_sync = await client.post(
+            "/api/dice/session/sync",
+            headers={"Authorization": f"Bearer {token}"},
+            json=sync_payload
+        )
         assert res_sync.status_code == 200
         data_sync = res_sync.json()
         assert data_sync["success"] is True
@@ -460,20 +479,46 @@ async def test_api_post_dice_session_sync():
         assert "local_storage" not in data_sync
         assert "tokens" not in data_sync
 
-        # C: Query session status endpoint to verify state is CONNECTED
-        res_stat = await client.get("/api/dice/session/status?user_id=test_restorer_sync_user")
+        # D: Query session status endpoint to verify state is CONNECTED for test_uid
+        res_stat = await client.get(f"/api/dice/session/status?user_id={test_uid}")
         assert res_stat.status_code == 200
         data_stat = res_stat.json()
         assert data_stat["connected"] is True
         assert data_stat["status"] == "valid"
 
+    if db is not None:
+        await db.users.delete_one({"_id": ObjectId(test_uid)})
+    store = get_session_store()
+    await store.delete_session(test_uid)
+
 # 11. API Endpoint: POST /api/dice/session/disconnect
 @pytest.mark.anyio
 async def test_api_post_dice_session_disconnect():
+    from app.core.security import create_access_token
+    from bson import ObjectId
+
+    test_uid = str(ObjectId())
+    db = get_database()
+    if db is not None:
+        await db.users.insert_one({"_id": ObjectId(test_uid), "email": "disc_user@example.com", "name": "Disc User"})
+    token = create_access_token(test_uid)
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        res = await client.post("/api/dice/session/disconnect?user_id=test_user_disc")
+        # A: Unauthenticated disconnect must return 401 Unauthorized
+        res_unauth = await client.post("/api/dice/session/disconnect")
+        assert res_unauth.status_code == 401
+
+        # B: Authenticated disconnect succeeds
+        res = await client.post(
+            "/api/dice/session/disconnect",
+            headers={"Authorization": f"Bearer {token}"}
+        )
         assert res.status_code == 200
         data = res.json()
         assert data["is_connected"] is False
+
+    if db is not None:
+        await db.users.delete_one({"_id": ObjectId(test_uid)})
+
 

@@ -778,10 +778,6 @@ class SettingsService:
             existing = await store.get_session(user_id)
             if existing and existing.email:
                 emails_to_clean.add(existing.email.strip().lower())
-            if user_id != "default":
-                def_sess = await store.get_session("default")
-                if def_sess and def_sess.email:
-                    emails_to_clean.add(def_sess.email.strip().lower())
         except Exception as se:
             logger.debug(f"Notice reading existing session before delete: {se}")
 
@@ -789,11 +785,9 @@ class SettingsService:
         if local_sess.get("email"):
             emails_to_clean.add(local_sess["email"].strip().lower())
 
-        # 2. Delete target session and default session from SessionStore
+        # 2. Delete target session from SessionStore
         try:
             await store.delete_session(user_id)
-            if user_id != "default":
-                await store.delete_session("default")
             for em in emails_to_clean:
                 await store.delete_session(em)
         except Exception as se:
@@ -1064,8 +1058,6 @@ class SettingsService:
                 last_verified_at=datetime.now(timezone.utc)
             )
             await session_store.save_session(target_uid, session_obj)
-            if target_uid != "default":
-                await session_store.save_session("default", session_obj)
         except Exception as store_err:
             logger.debug(f"Notice saving session to session_store: {store_err}")
 

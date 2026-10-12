@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 
-from app.core.deps import get_current_user_optional
+from app.core.deps import get_current_user, get_current_user_optional
 
 from app.services.session_store import get_session_store, _is_expired
 from app.services.dice_session_restorer import (
@@ -41,11 +41,17 @@ async def get_dice_session_status(
     - Never returns tokens, cookies, credentials, or localStorage values.
     - If authentication fails or session is expired, connected is always false.
     """
-    target_user_id = (str(user["_id"]) if user else None) or user_id or "default"
+    target_user_id = (str(user["_id"]) if user else None) or user_id
+    if not target_user_id:
+        return DiceSessionStatusResponse(
+            connected=False,
+            status=SessionState.LOGIN_REQUIRED,
+            last_verified_at=None,
+            expires_at=None
+        )
+
     store = get_session_store()
     session = await store.get_session(target_user_id)
-    if not session and target_user_id != "default":
-        session = await store.get_session("default")
 
     if not session:
         return DiceSessionStatusResponse(
@@ -151,7 +157,7 @@ class DiceSessionSyncResponse(BaseModel):
 @router.post("/api/dice/session/sync", response_model=DiceSessionSyncResponse, include_in_schema=False)
 async def sync_dice_session(
     payload: DiceSessionSyncPayload,
-    user: Optional[dict] = Depends(get_current_user_optional)
+    user: dict = Depends(get_current_user)
 ) -> DiceSessionSyncResponse:
     """
     Synchronizes authenticated Dice session tokens/cookies captured by the Chrome Extension.
@@ -163,7 +169,7 @@ async def sync_dice_session(
     4. Broadcasts connection event (DICE_CONNECTED) to the dashboard frontend.
     5. Returns ONLY safe metadata (no tokens, cookies, or secrets).
     """
-    target_user_id = (str(user["_id"]) if user else None) or payload.user_id or "default"
+    target_user_id = str(user["_id"])
 
     # 1. Validate presence of required authentication credentials
     has_tokens = has_required_auth_tokens({
@@ -201,7 +207,6 @@ async def sync_dice_session(
     # 3. Save under requested user_id in SessionStore with encryption
     if is_connected:
         from app.models.session import DiceSession
-        from app.database import get_database
         identity_val = next((c.get("value", "") for c in (payload.cookies or []) if c.get("name") == "identity"), "")
         sess_obj = DiceSession(
             user_id=target_user_id,
@@ -219,26 +224,6 @@ async def sync_dice_session(
             expires_at=now_utc + timedelta(days=30)
         )
         await store.save_session(target_user_id, sess_obj)
-        if target_user_id != "default":
-            # Keep default session mirrored for single-user/legacy compatibility
-            default_copy = sess_obj.model_copy(update={"user_id": "default"})
-            await store.save_session("default", default_copy)
-
-        # Multi-tenant link: If an email was detected, also link to the registered user ID
-        cand_email = (import_result.get("email") or "").strip().lower()
-        if cand_email:
-            try:
-                db = get_database()
-                if db is not None:
-                    matched_user = await db.users.find_one({"email": cand_email})
-                    if matched_user:
-                        matched_id = str(matched_user["_id"])
-                        if matched_id != target_user_id:
-                            sess_copy = sess_obj.model_copy(update={"user_id": matched_id})
-                            await store.save_session(matched_id, sess_copy)
-                            logger.info(f"Automatically linked Dice session to user '{matched_id}' ({cand_email})")
-            except Exception as le:
-                logger.debug(f"Notice auto-linking user session: {le}")
     else:
         last_verified = None
         expires_at = None
@@ -258,11 +243,10 @@ async def sync_dice_session(
 @router.post("/dice/session/disconnect")
 @router.post("/api/dice/session/disconnect", include_in_schema=False)
 async def disconnect_dice_session(
-    user_id: Optional[str] = Query(None),
-    user: Optional[dict] = Depends(get_current_user_optional)
+    user: dict = Depends(get_current_user)
 ):
-    """Disconnects the active Dice session, clears cookies/tokens, and notifies listeners."""
-    target_uid = (str(user["_id"]) if user else None) or user_id or "default"
+    """Disconnects the active Dice session for the authenticated user, clears cookies/tokens, and notifies listeners."""
+    target_uid = str(user["_id"])
     from app.services.settings_service import settings_service
     return await settings_service.disconnect_dice(user_id=target_uid)
 

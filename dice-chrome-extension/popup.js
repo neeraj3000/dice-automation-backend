@@ -196,6 +196,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   // In-page extractor to run on the active tab if Apply2Hire is open
   function extractActiveTabSession() {
     try {
+      const path = (window.location.pathname || "").toLowerCase();
+      if (
+        path.includes("/login") ||
+        path.includes("/signin") ||
+        path.includes("/register") ||
+        path.includes("/signup")
+      ) {
+        return { isLoggedOut: true, user: null, token: null };
+      }
+
       let user = null;
       let token = null;
 
@@ -213,23 +223,30 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
       if (!token) token = sessionStorage.getItem("a2h_token");
 
-      // DOM inspection fallback
-      if (!user) {
-        const bodyText = document.body ? document.body.innerText : "";
-        const emailMatch = bodyText.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-        const welcomeMatch = bodyText.match(/Welcome back,\s*([A-Za-z0-9_-]+)/i);
-        if (emailMatch || welcomeMatch) {
-          user = {
-            id: "local_user",
-            name: welcomeMatch ? welcomeMatch[1] : "Candidate",
-            email: emailMatch ? emailMatch[1] : ""
-          };
+      // Check Redux or generic auth keys
+      if (!token || !user) {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k) continue;
+          const val = localStorage.getItem(k);
+          if (typeof val !== "string") continue;
+          if (!token && val.startsWith("eyJ") && val.split(".").length === 3) {
+            token = val;
+          }
+          if (!user && (k.toLowerCase().includes("user") || k.toLowerCase().includes("auth"))) {
+            try {
+              const parsed = JSON.parse(val);
+              if (parsed && (parsed.email || parsed.name || (parsed.user && parsed.user.email))) {
+                user = parsed.user || parsed;
+              }
+            } catch (_) {}
+          }
         }
       }
 
-      return { user, token };
+      return { isLoggedOut: false, user, token };
     } catch (e) {
-      return { user: null, token: null };
+      return { isLoggedOut: false, user: null, token: null };
     }
   }
 
@@ -238,9 +255,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     chrome.storage.local.get(["a2h_user", "a2h_token", "dice_session"], (stored) => {
       if (stored && stored.a2h_user && (stored.a2h_user.name || stored.a2h_user.email)) {
         showApply2HireLoggedIn(stored.a2h_user);
+      } else {
+        showApply2HireNotLoggedIn();
       }
       if (stored && stored.dice_session && stored.dice_session.connected) {
         showDiceConnected(stored.dice_session);
+      } else {
+        showDiceDisconnected();
       }
     });
   }
@@ -256,23 +277,51 @@ document.addEventListener("DOMContentLoaded", async () => {
         activeTab.url.includes("127.0.0.1:5173") ||
         activeTab.url.includes("apply2hire")
       )) {
-        try {
-          const results = await chrome.scripting.executeScript({
-            target: { tabId: activeTab.id },
-            func: extractActiveTabSession,
-          });
-          if (results && results[0] && results[0].result && results[0].result.user) {
-            const { user, token } = results[0].result;
-            showApply2HireLoggedIn(user);
-            if (hasChromeStorage) {
-              chrome.storage.local.set({ a2h_user: user, a2h_token: token || "session_token" });
-            }
-            if (hasChromeRuntime) {
-              chrome.runtime.sendMessage({ action: "SYNC_APP_AUTH", user, token: token || "session_token" });
-            }
+        const activeUrl = activeTab.url.toLowerCase();
+        if (
+          activeUrl.includes("/login") ||
+          activeUrl.includes("/signin") ||
+          activeUrl.includes("/register") ||
+          activeUrl.includes("/signup")
+        ) {
+          // Explicitly on login page: clear cached auth immediately!
+          showApply2HireNotLoggedIn();
+          if (hasChromeStorage) {
+            chrome.storage.local.remove(["a2h_user", "a2h_token", "dice_session"]);
           }
-        } catch (tabScanErr) {
-          console.debug("Active tab script extraction notice:", tabScanErr);
+          if (hasChromeRuntime) {
+            chrome.runtime.sendMessage({ action: "CLEAR_APP_AUTH" });
+          }
+        } else {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId: activeTab.id },
+              func: extractActiveTabSession,
+            });
+            if (results && results[0] && results[0].result) {
+              const tabResult = results[0].result;
+              if (tabResult.isLoggedOut || (!tabResult.user && !tabResult.token)) {
+                showApply2HireNotLoggedIn();
+                if (hasChromeStorage) {
+                  chrome.storage.local.remove(["a2h_user", "a2h_token", "dice_session"]);
+                }
+                if (hasChromeRuntime) {
+                  chrome.runtime.sendMessage({ action: "CLEAR_APP_AUTH" });
+                }
+              } else if (tabResult.user) {
+                const { user, token } = tabResult;
+                showApply2HireLoggedIn(user);
+                if (hasChromeStorage) {
+                  chrome.storage.local.set({ a2h_user: user, a2h_token: token || "session_token" });
+                }
+                if (hasChromeRuntime) {
+                  chrome.runtime.sendMessage({ action: "SYNC_APP_AUTH", user, token: token || "session_token" });
+                }
+              }
+            }
+          } catch (tabScanErr) {
+            console.debug("Active tab script extraction notice:", tabScanErr);
+          }
         }
       }
     }
@@ -299,27 +348,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (app_auth && app_auth.authenticated && app_auth.user) {
           showApply2HireLoggedIn(app_auth.user);
         } else {
-          // If we already detected the user from storage/active tab, keep it
-          if (!loggedInBox || (loggedInBox.style.display !== "flex" && loggedInBox.style.display !== "block")) {
-            showApply2HireNotLoggedIn();
-          }
+          showApply2HireNotLoggedIn();
         }
 
-        // 2. Render Dice state
-        if (dice && dice.connected) {
+        // 2. Render Dice state (only show active if Apply2Hire is authenticated)
+        if (app_auth && app_auth.authenticated && dice && dice.connected) {
           showDiceConnected(dice);
         } else {
-          if (hasChromeStorage) {
-            chrome.storage.local.get(["dice_session"], (stored) => {
-              if (stored && stored.dice_session && stored.dice_session.connected) {
-                showDiceConnected(stored.dice_session);
-              } else {
-                showDiceDisconnected();
-              }
-            });
-          } else {
-            showDiceDisconnected();
-          }
+          showDiceDisconnected();
         }
       }
     });
@@ -337,12 +373,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (appUserEmail) appUserEmail.textContent = user.email || "-";
     if (appUserAvatar) appUserAvatar.textContent = getInitials(user.name, user.email);
     syncBtn.disabled = false;
+    syncBtn.removeAttribute("title");
   }
 
   function showApply2HireNotLoggedIn() {
     loggedInBox.style.display = "none";
     notLoggedInBox.style.display = "flex";
     if (authUrlCaption) authUrlCaption.textContent = currentWebAppUrl;
+    syncBtn.disabled = true;
+    syncBtn.title = "Sign in to Apply2Hire first to sync Dice";
+    showDiceDisconnected();
   }
 
   function showDiceConnected(dice) {

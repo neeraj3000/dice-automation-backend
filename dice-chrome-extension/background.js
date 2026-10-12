@@ -52,6 +52,11 @@ async function getWebAppUrl() {
 
 function extractStorageFromPage() {
   try {
+    const path = (window.location.pathname || "").toLowerCase();
+    if (path.includes("/login") || path.includes("/signin") || path.includes("/register") || path.includes("/signup")) {
+      return { isLoggedOutPage: true, ls: {}, ss: {} };
+    }
+
     const ls = {};
     for (let i = 0; i < window.localStorage.length; i++) {
       const k = window.localStorage.key(i);
@@ -73,27 +78,14 @@ function extractStorageFromPage() {
       bridgeToken = ls["a2h_token"];
     }
 
-    // In-page fallback: inspect DOM for user greeting & email
-    let domUser = null;
-    const bodyText = document.body ? document.body.innerText : "";
-    const emailMatch = bodyText.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-    const welcomeMatch = bodyText.match(/Welcome back,\s*([A-Za-z0-9_-]+)/i);
-    if (emailMatch || welcomeMatch) {
-      domUser = {
-        id: "local_user",
-        name: welcomeMatch ? welcomeMatch[1] : "Candidate",
-        email: emailMatch ? emailMatch[1] : ""
-      };
-    }
-
-    return { ls, ss, bridgeUser, bridgeToken, domUser, href: window.location.href };
+    return { ls, ss, bridgeUser, bridgeToken, href: window.location.href };
   } catch (e) {
     return { error: e.message };
   }
 }
 
 function parseAuthFromStorage(storageData) {
-  if (!storageData) return { token: null, user: null };
+  if (!storageData || storageData.isLoggedOutPage) return { token: null, user: null };
 
   if (storageData.bridgeUser) {
     return {
@@ -104,7 +96,7 @@ function parseAuthFromStorage(storageData) {
 
   const combined = { ...(storageData.ss || {}), ...(storageData.ls || {}) };
   let foundToken = null;
-  let foundUser = storageData.domUser || null;
+  let foundUser = null;
 
   for (const [key, raw] of Object.entries(combined)) {
     if (typeof raw !== "string" || !raw) continue;
@@ -155,11 +147,44 @@ async function checkApply2HireAuth() {
   const backendUrl = await getBackendUrl();
   const webAppUrl = await getWebAppUrl();
 
-  // 1. Priority: Check cached user profile in chrome.storage.local
+  // 1. First inspect open browser tabs matching Apply2Hire to detect live state
+  let relevantTabs = [];
+  try {
+    const allTabs = await chrome.tabs.query({});
+    relevantTabs = allTabs.filter(t => t.url && (
+      t.url.includes("localhost:5173") ||
+      t.url.includes("localhost:3000") ||
+      t.url.includes("127.0.0.1:5173") ||
+      t.url.includes("apply2hire") ||
+      (webAppUrl && t.url.includes(new URL(webAppUrl).hostname))
+    ));
+
+    // Check if the user is on an active login or signin tab
+    const activeRelevantTab = relevantTabs.find(t => t.active);
+    if (activeRelevantTab && activeRelevantTab.url) {
+      const activeUrl = activeRelevantTab.url.toLowerCase();
+      if (
+        activeUrl.includes("/login") ||
+        activeUrl.includes("/signin") ||
+        activeUrl.includes("/register") ||
+        activeUrl.includes("/signup")
+      ) {
+        // Active tab is explicitly on the auth/login page: clear cached auth!
+        await chrome.storage.local.remove(["a2h_token", "a2h_user", "dice_session"]);
+        return {
+          authenticated: false,
+          message: "Sign in to Apply2Hire in this browser, then reopen this popup to sync."
+        };
+      }
+    }
+  } catch (err) {
+    console.debug("[Apply2Hire Sync] Tab query error:", err);
+  }
+
+  // 2. Validate cached user profile in chrome.storage.local
   try {
     const stored = await new Promise((r) => chrome.storage.local.get(["a2h_token", "a2h_user"], r));
     if (stored && stored.a2h_user && (stored.a2h_user.name || stored.a2h_user.email)) {
-      // If we have a JWT token, optionally verify with /auth/me in background
       if (stored.a2h_token && stored.a2h_token.startsWith("eyJ")) {
         try {
           const meResp = await fetch(`${backendUrl}/auth/me`, {
@@ -172,33 +197,45 @@ async function checkApply2HireAuth() {
             const freshUser = await meResp.json();
             await chrome.storage.local.set({ a2h_user: freshUser });
             return { authenticated: true, user: freshUser, token: stored.a2h_token };
+          } else if (meResp.status === 401 || meResp.status === 403) {
+            // Token is invalid/expired! Wipe storage
+            await chrome.storage.local.remove(["a2h_token", "a2h_user", "dice_session"]);
           }
         } catch (_) {}
+      } else {
+        // Mock/session token stored: check if at least one tab is actually logged in
+        let hasOpenAuthTab = false;
+        for (const tab of relevantTabs) {
+          if (!tab.url) continue;
+          const u = tab.url.toLowerCase();
+          if (!u.includes("/login") && !u.includes("/signin") && !u.includes("/register") && !u.includes("/signup")) {
+            hasOpenAuthTab = true;
+            break;
+          }
+        }
+        if (hasOpenAuthTab) {
+          return {
+            authenticated: true,
+            user: stored.a2h_user,
+            token: stored.a2h_token || "session_token"
+          };
+        } else if (relevantTabs.length > 0) {
+          await chrome.storage.local.remove(["a2h_token", "a2h_user", "dice_session"]);
+        }
       }
-      return {
-        authenticated: true,
-        user: stored.a2h_user,
-        token: stored.a2h_token || "session_token"
-      };
     }
   } catch (_) {}
 
-  // 2. Check open tabs matching Apply2Hire / localhost / 127.0.0.1
+  // 3. Check open tabs matching Apply2Hire
   try {
-    const allTabs = await chrome.tabs.query({});
-    const relevantTabs = allTabs.filter(t => t.url && (
-      t.url.includes("localhost:5173") ||
-      t.url.includes("localhost:3000") ||
-      t.url.includes("127.0.0.1:5173") ||
-      t.url.includes("apply2hire") ||
-      (webAppUrl && t.url.includes(new URL(webAppUrl).hostname))
-    ));
-
-    // Sort to prioritize active tab if any
     relevantTabs.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0));
 
     for (const tab of relevantTabs) {
-      if (!tab.id) continue;
+      if (!tab.id || !tab.url) continue;
+      const tabUrl = tab.url.toLowerCase();
+      if (tabUrl.includes("/login") || tabUrl.includes("/signin") || tabUrl.includes("/register") || tabUrl.includes("/signup")) {
+        continue;
+      }
 
       // Try communicating with content_bridge.js first
       try {
@@ -212,7 +249,7 @@ async function checkApply2HireAuth() {
           });
         });
 
-        if (tabAuth && tabAuth.user && (tabAuth.user.name || tabAuth.user.email)) {
+        if (tabAuth && !tabAuth.isLoggedOut && tabAuth.user && (tabAuth.user.name || tabAuth.user.email)) {
           await chrome.storage.local.set({
             a2h_user: tabAuth.user,
             a2h_token: tabAuth.token || "session_token"
@@ -235,7 +272,7 @@ async function checkApply2HireAuth() {
         if (scriptRes && scriptRes[0] && scriptRes[0].result) {
           const parsed = parseAuthFromStorage(scriptRes[0].result);
 
-          if (parsed.user && (parsed.user.email || parsed.user.name)) {
+          if (!parsed.isLoggedOutPage && parsed.user && (parsed.user.email || parsed.user.name)) {
             const userObj = {
               id: parsed.user.id || parsed.user._id || "local_user",
               name: parsed.user.name || "Candidate",
@@ -435,7 +472,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "CLEAR_APP_AUTH") {
     (async () => {
       try {
-        await chrome.storage.local.remove(["a2h_token", "a2h_user"]);
+        await chrome.storage.local.remove(["a2h_token", "a2h_user", "dice_session"]);
         sendResponse({ success: true });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
@@ -450,6 +487,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const backendUrl = await getBackendUrl();
         const webAppUrl = await getWebAppUrl();
         const auth = await checkApply2HireAuth();
+
+        if (!auth.authenticated) {
+          await chrome.storage.local.remove(["dice_session"]);
+          sendResponse({
+            success: true,
+            data: {
+              app_auth: auth,
+              dice: { connected: false, status: "login_required" },
+              backend_url: backendUrl,
+              web_app_url: webAppUrl
+            }
+          });
+          return;
+        }
 
         const headers = { "Accept": "application/json" };
         if (auth.authenticated && auth.token && auth.token !== "session_token") {
