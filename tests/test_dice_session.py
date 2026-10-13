@@ -268,3 +268,86 @@ async def test_authenticated_dice_session_sync():
         await store.delete_session(test_uid)
 
 
+
+
+@pytest.mark.anyio
+async def test_dice_account_details_independent_from_apply2hire():
+    """Verify that Dice account details never fall back to Apply2Hire details, and never mutate Apply2Hire profile."""
+    from app.core.security import create_access_token
+    from bson import ObjectId
+    from app.services.session_store import get_session_store
+    import base64
+    import json
+
+    test_uid = str(ObjectId())
+    db = get_database()
+    if db is not None:
+        await db.users.insert_one({
+            "_id": ObjectId(test_uid),
+            "email": "a2h_candidate@example.com",
+            "name": "Apply2Hire Real User"
+        })
+
+    token = create_access_token(test_uid)
+    transport = ASGITransport(app=app)
+
+    try:
+        # Case 1: Generic auth tokens with NO identity payload - MUST NOT fall back to Apply2Hire user name/email
+        cookies_no_identity = [{"name": "test_auth_token", "value": "auth_val_1", "domain": ".dice.com", "path": "/"}]
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            res1 = await client.post(
+                "/api/dice/session/sync",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"cookies": cookies_no_identity}
+            )
+            assert res1.status_code == 200
+            data1 = res1.json()
+            assert data1["username"] != "Apply2Hire Real User"
+            assert data1["email"] != "a2h_candidate@example.com"
+            assert data1["username"] == "Dice Candidate"
+
+            # Case 2: Dice session with genuine Dice candidate identity JWT
+            dice_payload = {
+                "given_name": "DiceCandidate",
+                "family_name": "Specialist",
+                "email": "dice_candidate_acc@example.com",
+                "sub": "dice-sub-7788"
+            }
+            jwt_payload_b64 = base64.urlsafe_b64encode(json.dumps(dice_payload).encode()).decode().rstrip("=")
+            mock_identity_cookie = f"header.{jwt_payload_b64}.signature"
+            cookies_with_dice_id = [
+                {"name": "identity", "value": mock_identity_cookie, "domain": ".dice.com", "path": "/"}
+            ]
+
+            res2 = await client.post(
+                "/api/dice/session/sync",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"cookies": cookies_with_dice_id}
+            )
+            assert res2.status_code == 200
+            data2 = res2.json()
+            assert data2["username"] == "DiceCandidate Specialist"
+            assert data2["email"] == "dice_candidate_acc@example.com"
+
+            # Verify Apply2Hire user was NOT overwritten or mutated
+            if db is not None:
+                user_doc = await db.users.find_one({"_id": ObjectId(test_uid)})
+                assert user_doc["name"] == "Apply2Hire Real User"
+                assert user_doc["email"] == "a2h_candidate@example.com"
+
+            # Verify status endpoint returns Dice details, not Apply2Hire details
+            status_res = await client.get(
+                "/api/dice/session/status",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            assert status_res.status_code == 200
+            status_data = status_res.json()
+            assert status_data["username"] == "DiceCandidate Specialist"
+            assert status_data["email"] == "dice_candidate_acc@example.com"
+            assert status_data["username"] != "Apply2Hire Real User"
+
+    finally:
+        if db is not None:
+            await db.users.delete_one({"_id": ObjectId(test_uid)})
+        store = get_session_store()
+        await store.delete_session(test_uid)

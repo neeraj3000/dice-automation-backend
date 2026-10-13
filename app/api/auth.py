@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Cookie, Depends, Header, Response
 
-from app.core.deps import get_current_user, rate_limit
+from typing import Optional
+from app.core.deps import get_current_user, get_current_user_optional, rate_limit
 from app.schemas.auth import AuthOut, GoogleIn, LoginIn, RegisterIn, UserOut
 from app.services import auth_service
 from app.services.auth_service import REFRESH_COOKIE
@@ -35,8 +36,13 @@ async def refresh(
 
 
 @router.post("/logout", status_code=204)
-async def logout(response: Response, a2h_refresh: str | None = Cookie(default=None)):
-    await auth_service.logout(a2h_refresh, response)
+async def logout(
+    response: Response,
+    a2h_refresh: str | None = Cookie(default=None),
+    user: Optional[dict] = Depends(get_current_user_optional)
+):
+    user_id = str(user["_id"]) if user else None
+    await auth_service.logout(a2h_refresh, response, user_id=user_id)
 
 
 @router.get("/me", response_model=UserOut)

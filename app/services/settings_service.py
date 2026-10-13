@@ -450,20 +450,9 @@ class SettingsService:
 
     async def _resolve_generic_username(self) -> str:
         """
-        Dynamically resolve a user display name generically from the candidate profile,
-        or fallback to 'Dice Candidate'. Never returns test or hardcoded personal names.
+        Generic fallback for Dice candidate name.
+        Never falls back to Apply2Hire user details, as Dice account details are separate.
         """
-        try:
-            profile = await self.get_profile()
-            first = (profile.first_name or "").strip()
-            last = (profile.last_name or "").strip()
-            full_name = f"{first} {last}".strip()
-            if full_name and not self._is_hardcoded_name(full_name):
-                return full_name
-            if profile.email:
-                return profile.email.split("@")[0]
-        except Exception:
-            pass
         return "Dice Candidate"
 
     AUTH_COOKIE_KEYS = (
@@ -606,16 +595,35 @@ class SettingsService:
                 from app.services.session_store import get_session_store
                 store = get_session_store()
                 u_sess = await store.get_session(user_id)
-                if u_sess and u_sess.status == "valid":
+                if u_sess and (getattr(u_sess, "is_connected", False) or str(getattr(u_sess, "status", "")).upper() in ("CONNECTED", "VALID")):
                     return {
                         "is_connected": True,
+                        "status": "CONNECTED",
                         "username": u_sess.username or "",
                         "email": u_sess.email or "",
                         "cookies_count": u_sess.cookies_count or len(u_sess.cookies or []),
                         "last_verified": u_sess.last_verified_at.isoformat() if u_sess.last_verified_at else None
                     }
+                else:
+                    # An authenticated user with no active session in SessionStore is NOT connected.
+                    # Do not fall back to unauthenticated host machine session!
+                    return {
+                        "is_connected": False,
+                        "status": "LOGIN_REQUIRED",
+                        "username": "",
+                        "email": "",
+                        "cookies_count": 0,
+                        "last_verified": None
+                    }
             except Exception:
-                pass
+                return {
+                    "is_connected": False,
+                    "status": "LOGIN_REQUIRED",
+                    "username": "",
+                    "email": "",
+                    "cookies_count": 0,
+                    "last_verified": None
+                }
 
         local_session = self.get_local_session()
 
@@ -898,6 +906,7 @@ class SettingsService:
         cookies: Optional[list] = None,
         cookie_string: Optional[str] = None,
         username: Optional[str] = None,
+        email: Optional[str] = None,
         local_storage: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = "default"
     ) -> Dict[str, Any]:
@@ -1017,10 +1026,14 @@ class SettingsService:
                     except Exception:
                         pass
 
+        if not extracted_email and email and isinstance(email, str):
+            extracted_email = email.strip()
+
         now_iso = datetime.now(timezone.utc).isoformat()
-        resolved_username = username.strip() if (username and not self._is_hardcoded_name(username)) else ""
+        # Prioritize candidate name or email directly extracted from Dice credentials (never fallback to Apply2Hire)
+        resolved_username = extracted_name or (username.strip() if (username and not self._is_hardcoded_name(username)) else "")
         if not resolved_username:
-            resolved_username = extracted_name or extracted_email or await self._resolve_generic_username()
+            resolved_username = extracted_email or "Dice Candidate"
 
         # Perform verification of the imported session
         is_connected = False
@@ -1062,6 +1075,7 @@ class SettingsService:
         try:
             from app.models.session import DiceSession
             from app.services.session_store import get_session_store
+            store = get_session_store()
             target_uid = user_id or "default"
             session_obj = DiceSession(
                 user_id=target_uid,
@@ -1076,24 +1090,13 @@ class SettingsService:
                 identity=next((c.get("value", "") for c in sanitized_cookies if c.get("name") == "identity"), ""),
                 last_verified_at=datetime.now(timezone.utc)
             )
-            await session_store.save_session(target_uid, session_obj)
+            await store.save_session(target_uid, session_obj)
         except Exception as store_err:
             logger.debug(f"Notice saving session to session_store: {store_err}")
 
 
-        # Update candidate user profile email and name in MongoDB settings
-        if is_connected and extracted_email and self.db is not None:
-            try:
-                prof = await self.get_profile(target_uid)
-                prof_dict = prof.model_dump()
-                prof_dict["email"] = extracted_email
-                if extracted_first and not prof_dict.get("first_name"):
-                    prof_dict["first_name"] = extracted_first
-                if extracted_last and not prof_dict.get("last_name"):
-                    prof_dict["last_name"] = extracted_last
-                await self.update_profile(UserProfileSchema(**prof_dict), user_id=target_uid)
-            except Exception as pe:
-                logger.debug(f"Notice updating profile in MongoDB on session import: {pe}")
+        # Dice account details are strictly separate from Apply2Hire user profile.
+        # Do not overwrite the Apply2Hire user profile with Dice credentials.
 
         # Proactively purge any legacy cookies from shared MongoDB app_settings
         if self.db is not None:

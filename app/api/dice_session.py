@@ -103,10 +103,10 @@ async def get_dice_session_status(
     is_conn = bool(session.is_connected and session.status in (SessionState.CONNECTED, "valid"))
     status_str = "valid" if is_conn else (session.status or SessionState.LOGIN_REQUIRED)
 
-    # Resolve candidate account name & email
+    # Resolve candidate account name & email (strictly for this session, never fall back to host machine file)
     resolved_username = (session.username or "").strip()
     resolved_email = (session.email or "").strip()
-    if not resolved_username or not resolved_email:
+    if target_user_id == "default" and (not resolved_username or not resolved_email):
         try:
             from app.services.settings_service import settings_service
             local_sess = settings_service.load_local_session()
@@ -136,6 +136,7 @@ class DiceSessionSyncPayload(BaseModel):
     cookies: Optional[List[Dict[str, Any]]] = None
     local_storage: Optional[Dict[str, Any]] = None
     username: Optional[str] = None
+    email: Optional[str] = None
     user_id: Optional[str] = "default"
 
 class DiceSessionSyncResponse(BaseModel):
@@ -187,6 +188,7 @@ async def sync_dice_session(
     import_result = await settings_service.import_dice_session(
         cookies=payload.cookies,
         username=payload.username,
+        email=payload.email,
         local_storage=payload.local_storage,
         user_id=target_user_id
     )

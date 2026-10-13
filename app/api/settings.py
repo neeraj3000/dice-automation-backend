@@ -151,6 +151,7 @@ class SessionImportPayload(BaseModel):
     cookies: Optional[List[Dict[str, Any]]] = None
     cookie_string: Optional[str] = None
     username: Optional[str] = None
+    email: Optional[str] = None
     local_storage: Optional[Dict[str, Any]] = None
 
 @router.post("/settings/import-dice-session")
@@ -168,6 +169,7 @@ async def import_dice_session(payload: SessionImportPayload, user: dict = Depend
         cookies=payload.cookies,
         cookie_string=payload.cookie_string,
         username=payload.username,
+        email=payload.email,
         local_storage=payload.local_storage,
         user_id=user_id
     )

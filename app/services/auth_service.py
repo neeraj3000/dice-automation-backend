@@ -161,12 +161,23 @@ async def refresh(token: str | None, response: Response) -> dict:
     return await _issue(user, response)
 
 
-async def logout(token: str | None, response: Response) -> None:
+async def logout(token: str | None, response: Response, user_id: str | None = None) -> None:
+    target_uid = user_id
     if token:
         try:
             payload = decode_token(token, "refresh")
             db = get_database()
             await db.refresh_tokens.delete_one({"jti_hash": hash_jti(payload["jti"])})
+            if not target_uid and payload.get("sub"):
+                target_uid = str(payload["sub"])
         except Exception:
             pass
     response.delete_cookie(REFRESH_COOKIE, path="/")
+
+    # When logging out of Apply2Hire, Dice session should also be removed completely
+    try:
+        from app.services.settings_service import settings_service
+        await settings_service.disconnect_dice(user_id=target_uid or "default")
+    except Exception as e:
+        import logging
+        logging.getLogger("apply2hire").debug(f"Notice disconnecting dice on logout: {e}")

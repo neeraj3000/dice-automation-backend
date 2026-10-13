@@ -169,7 +169,7 @@ async function checkApply2HireAuth() {
         activeUrl.includes("/register") ||
         activeUrl.includes("/signup")
       ) {
-        // Active tab is explicitly on the auth/login page: clear cached auth!
+        // Active tab is explicitly on the auth/login page: clear cached auth AND dice session!
         await chrome.storage.local.remove(["a2h_token", "a2h_user", "dice_session"]);
         return {
           authenticated: false,
@@ -199,7 +199,7 @@ async function checkApply2HireAuth() {
             return { authenticated: true, user: freshUser, token: stored.a2h_token };
           } else if (meResp.status === 401 || meResp.status === 403) {
             // Token is invalid/expired! Wipe storage
-            await chrome.storage.local.remove(["a2h_token", "a2h_user", "dice_session"]);
+            await chrome.storage.local.remove(["a2h_token", "a2h_user"]);
           }
         } catch (_) {}
       } else {
@@ -220,7 +220,7 @@ async function checkApply2HireAuth() {
             token: stored.a2h_token || "session_token"
           };
         } else if (relevantTabs.length > 0) {
-          await chrome.storage.local.remove(["a2h_token", "a2h_user", "dice_session"]);
+          await chrome.storage.local.remove(["a2h_token", "a2h_user"]);
         }
       }
     }
@@ -383,6 +383,96 @@ function filterDiceAuthCookies(cookies) {
   });
 }
 
+function parseJwtPayload(tokenStr) {
+  if (!tokenStr || typeof tokenStr !== "string") return null;
+  const parts = tokenStr.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonStr = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    return JSON.parse(jsonStr);
+  } catch (_) {
+    try {
+      return JSON.parse(atob(parts[1]));
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+function extractDiceCandidateDetails(cookies, localStorageObj) {
+  let diceName = "";
+  let diceEmail = "";
+  let candidateId = "";
+
+  // 1. Check identity cookie JWT from dice.com
+  if (Array.isArray(cookies)) {
+    const identityCookie = cookies.find((c) => (c.name || "").toLowerCase() === "identity");
+    if (identityCookie && identityCookie.value) {
+      const payload = parseJwtPayload(identityCookie.value);
+      if (payload) {
+        const first = (payload.given_name || payload.first_name || "").trim();
+        const last = (payload.family_name || payload.last_name || "").trim();
+        const full = (payload.name || `${first} ${last}`).trim();
+        if (full) diceName = full;
+        if (payload.email) diceEmail = String(payload.email).trim();
+        if (payload.candidate_id || payload.sub) {
+          candidateId = String(payload.candidate_id || payload.sub).trim();
+        }
+      }
+    }
+  }
+
+  // 2. Check Cognito idToken and userData in localStorage
+  if (localStorageObj && typeof localStorageObj === "object") {
+    for (const [k, v] of Object.entries(localStorageObj)) {
+      if (typeof v !== "string") continue;
+      const kLower = k.toLowerCase();
+      if (kLower.includes("idtoken") && v.includes(".")) {
+        const payload = parseJwtPayload(v);
+        if (payload) {
+          if (!diceEmail && payload.email) diceEmail = String(payload.email).trim();
+          if (!diceName) {
+            const first = (payload.given_name || payload.first_name || "").trim();
+            const last = (payload.family_name || payload.last_name || "").trim();
+            const full = (payload.name || `${first} ${last}`).trim();
+            if (full) diceName = full;
+          }
+          if (!candidateId && (payload.sub || payload["cognito:username"])) {
+            candidateId = String(payload.sub || payload["cognito:username"]).trim();
+          }
+        }
+      }
+      if (kLower.includes("userdata")) {
+        try {
+          const ud = JSON.parse(v);
+          const attrs = ud.UserAttributes || [];
+          for (const attr of attrs) {
+            if (attr.Name === "email" && !diceEmail && attr.Value) {
+              diceEmail = String(attr.Value).trim();
+            }
+            if ((attr.Name === "name" || attr.Name === "given_name") && !diceName && attr.Value) {
+              diceName = String(attr.Value).trim();
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  return {
+    username: diceName || "",
+    email: diceEmail || "",
+    candidate_id: candidateId || ""
+  };
+}
+
 function extractCognitoLocalStorage() {
   const authItems = {};
   const keywords = ["idtoken", "accesstoken", "refreshtoken", "lastauthuser", "userdata", "cognito", "dice_auth"];
@@ -489,7 +579,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const auth = await checkApply2HireAuth();
 
         if (!auth.authenticated) {
-          await chrome.storage.local.remove(["dice_session"]);
           sendResponse({
             success: true,
             data: {
@@ -518,18 +607,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           diceData = await resp.json();
         }
 
-        // Cache or fallback to stored dice_session metadata
-        try {
-          const cached = await new Promise((r) => chrome.storage.local.get(["dice_session"], r));
-          if (diceData && diceData.connected) {
-            if (diceData.username || diceData.email) {
-              await chrome.storage.local.set({ dice_session: diceData });
-            } else if (cached && cached.dice_session) {
-              if (cached.dice_session.username) diceData.username = cached.dice_session.username;
-              if (cached.dice_session.email) diceData.email = cached.dice_session.email;
-            }
-          }
-        } catch (_) {}
+        // Only cache dice_session if actively connected on backend; otherwise ensure storage is clear
+        if (diceData && diceData.connected) {
+          try {
+            await chrome.storage.local.set({ dice_session: diceData });
+          } catch (_) {}
+        } else {
+          try {
+            await chrome.storage.local.remove(["dice_session"]);
+          } catch (_) {}
+        }
 
         sendResponse({
           success: true,
@@ -589,6 +676,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           headers["Authorization"] = `Bearer ${auth.token}`;
         }
 
+        const diceDetails = extractDiceCandidateDetails(sessionData.cookies, sessionData.local_storage);
         const targetUid = (auth.user && auth.user.id) || "default";
         const resp = await fetch(syncUrl, {
           method: "POST",
@@ -597,7 +685,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             cookies: sessionData.cookies,
             local_storage: sessionData.local_storage,
             user_id: targetUid,
-            username: (auth.user && auth.user.name) || undefined
+            username: diceDetails.username || undefined,
+            email: diceDetails.email || undefined
           }),
         });
 
@@ -608,8 +697,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               dice_session: {
                 connected: Boolean(result.connected),
                 status: result.status || "valid",
-                username: result.username || "",
-                email: result.email || "",
+                username: result.username || diceDetails.username || "Dice Candidate",
+                email: result.email || diceDetails.email || "",
                 last_verified_at: result.last_verified_at || new Date().toISOString()
               }
             });
