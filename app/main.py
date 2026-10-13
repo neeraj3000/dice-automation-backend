@@ -34,24 +34,28 @@ async def lifespan(app: FastAPI):
             "secret", "change-me", "changeme", "default", "your-secret-key", "jwt-secret"
         }
         if not settings.JWT_SECRET or settings.JWT_SECRET in known_defaults or len(settings.JWT_SECRET.strip()) < 32:
-            raise RuntimeError(
-                "CRITICAL: JWT_SECRET must be configured with a secure, random secret (min 32 characters) in production."
-            )
+            msg = "CRITICAL: JWT_SECRET must be configured with a secure, random secret (min 32 characters) in production."
+            print(f"[Dice-Automation] STARTUP HALTED: {msg}", file=sys.stderr, flush=True)
+            raise RuntimeError(msg)
+
         if not settings.SESSION_ENCRYPTION_KEY or not settings.SESSION_ENCRYPTION_KEY.strip():
-            raise RuntimeError(
-                "CRITICAL: SESSION_ENCRYPTION_KEY must be configured with a valid encryption key in production."
-            )
+            msg = "CRITICAL: SESSION_ENCRYPTION_KEY must be configured with a valid encryption key in production."
+            print(f"[Dice-Automation] STARTUP HALTED: {msg}", file=sys.stderr, flush=True)
+            raise RuntimeError(msg)
+
         from app.services.session_store import SessionEncryption
         try:
             SessionEncryption.derive_key(settings.SESSION_ENCRYPTION_KEY)
         except Exception as e:
-            raise RuntimeError(f"CRITICAL: SESSION_ENCRYPTION_KEY is invalid in production: {e}")
+            msg = f"CRITICAL: SESSION_ENCRYPTION_KEY is invalid in production: {e}"
+            print(f"[Dice-Automation] STARTUP HALTED: {msg}", file=sys.stderr, flush=True)
+            raise RuntimeError(msg)
 
         cors_env = (settings.CORS_ORIGINS or "").strip()
         if not cors_env or cors_env == "*":
-            raise RuntimeError(
-                "CRITICAL: In production, CORS_ORIGINS must be set to explicit trusted origins and cannot be '*' or empty when credentials are enabled."
-            )
+            msg = "CRITICAL: In production, CORS_ORIGINS must be set to explicit trusted origins and cannot be '*' or empty when credentials are enabled."
+            print(f"[Dice-Automation] STARTUP HALTED: {msg}", file=sys.stderr, flush=True)
+            raise RuntimeError(msg)
 
     # Startup: Connect to MongoDB and set up indexes
     try:
