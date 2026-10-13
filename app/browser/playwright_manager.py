@@ -189,12 +189,22 @@ class PlaywrightManager:
         Does NOT download or install at runtime; browsers must be installed during the build phase.
         """
         self._ensure_loop_and_locks()
+
+        # Check if the active asyncio event loop supports subprocesses on Windows
+        try:
+            loop = asyncio.get_running_loop()
+            if sys.platform == "win32" and getattr(asyncio, "SelectorEventLoop", None) and isinstance(loop, asyncio.SelectorEventLoop):
+                logger.debug("Windows SelectorEventLoop active; Playwright driver subprocess requires ProactorEventLoop.")
+                return False
+        except Exception:
+            pass
+
         async with self._install_lock:
             if not self.playwright:
                 try:
                     await self.start()
                 except Exception as e:
-                    logger.error(f"Failed to start async_playwright in ensure_browser_installed: {e}")
+                    logger.debug(f"Could not start async_playwright in ensure_browser_installed: {e}")
                     return False
 
             try:
@@ -202,21 +212,30 @@ class PlaywrightManager:
                 if exec_path and Path(exec_path).exists():
                     logger.info(f"Playwright Chromium binary verified at: {exec_path}")
                     return True
-                logger.error(
-                    f"Playwright Chromium binary not found at '{exec_path}'. "
-                    "Chromium must be installed during the build phase using 'python -m playwright install --with-deps chromium'."
-                )
+                logger.debug(f"Playwright Chromium binary not found at '{exec_path}'.")
             except Exception as e:
-                logger.error(
-                    f"Could not verify Chromium executable_path ({e}). "
-                    "Ensure Chromium was installed during the build phase."
-                )
+                logger.debug(f"Could not verify Chromium executable_path ({e}).")
 
             return False
 
     async def get_browser_status(self) -> dict:
         """Returns diagnostic info about browser binary presence and execution mode."""
         self._ensure_loop_and_locks()
+        try:
+            loop = asyncio.get_running_loop()
+            if sys.platform == "win32" and getattr(asyncio, "SelectorEventLoop", None) and isinstance(loop, asyncio.SelectorEventLoop):
+                return {
+                    "installed": False,
+                    "error": "Windows SelectorEventLoop active (ProactorEventLoop required for browser driver subprocess)",
+                    "browser_mode": self.browser_mode,
+                    "headless": self.headless,
+                    "is_cloud_mode": self.is_cloud_mode,
+                    "browser_data_dir": str(self.base_data_dir),
+                    "active_profiles": list(self._contexts.keys())
+                }
+        except Exception:
+            pass
+
         if not self.playwright:
             try:
                 await self.start()
