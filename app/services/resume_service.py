@@ -146,13 +146,11 @@ class ResumeService:
         return format_resume_doc(doc) if doc else None
 
     async def update_resume(self, resume_id: str, update_data: ResumeUpdate, user_id: Optional[Any] = None) -> Optional[ResumeResponse]:
-        if not ObjectId.is_valid(resume_id):
+        if not ObjectId.is_valid(resume_id) or not user_id:
             return None
 
-        query = {"_id": ObjectId(resume_id)}
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            query["user_id"] = {"$in": u_oids + [str(user_id)]}
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        query = {"_id": ObjectId(resume_id), "user_id": {"$in": u_oids + [str(user_id)]}}
         existing = await self.collection.find_one(query)
         if not existing:
             return None
@@ -163,19 +161,17 @@ class ResumeService:
 
         update_dict["updated_at"] = datetime.now(timezone.utc)
         result = await self.collection.find_one_and_update(
-            {"_id": ObjectId(resume_id)},
+            query,
             {"$set": update_dict},
             return_document=True
         )
         return format_resume_doc(result)
 
     async def replace_resume_file(self, resume_id: str, file: UploadFile, user_id: Optional[Any] = None) -> Optional[ResumeResponse]:
-        if not ObjectId.is_valid(resume_id):
+        if not ObjectId.is_valid(resume_id) or not user_id:
             return None
-        query = {"_id": ObjectId(resume_id)}
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            query["user_id"] = {"$in": u_oids + [str(user_id)]}
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        query = {"_id": ObjectId(resume_id), "user_id": {"$in": u_oids + [str(user_id)]}}
         existing_doc = await self.collection.find_one(query)
         if not existing_doc:
             return None
@@ -227,20 +223,18 @@ class ResumeService:
         }
 
         updated = await self.collection.find_one_and_update(
-            {"_id": ObjectId(resume_id)},
+            query,
             {"$set": update_dict, "$unset": {"file_path": ""}},
             return_document=True
         )
         return format_resume_doc(updated)
 
     async def delete_resume(self, resume_id: str, user_id: Optional[Any] = None) -> bool:
-        if not ObjectId.is_valid(resume_id):
+        if not ObjectId.is_valid(resume_id) or not user_id:
             return False
 
-        query = {"_id": ObjectId(resume_id)}
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            query["user_id"] = {"$in": u_oids + [str(user_id)]}
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        query = {"_id": ObjectId(resume_id), "user_id": {"$in": u_oids + [str(user_id)]}}
         doc = await self.collection.find_one(query)
         if not doc:
             return False
@@ -263,16 +257,14 @@ class ResumeService:
         except Exception:
             pass
 
-        await self.collection.delete_one({"_id": ObjectId(resume_id)})
-        return True
+        del_res = await self.collection.delete_one(query)
+        return del_res.deleted_count > 0
 
     async def reparse_resume(self, resume_id: str, user_id: Optional[Any] = None) -> Optional[ResumeResponse]:
-        if not ObjectId.is_valid(resume_id):
+        if not ObjectId.is_valid(resume_id) or not user_id:
             return None
-        query = {"_id": ObjectId(resume_id)}
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            query["user_id"] = {"$in": u_oids + [str(user_id)]}
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        query = {"_id": ObjectId(resume_id), "user_id": {"$in": u_oids + [str(user_id)]}}
         doc = await self.collection.find_one(query)
         if not doc:
             return None
@@ -280,7 +272,7 @@ class ResumeService:
         metadata = await llm_service.parse_resume_metadata(doc["raw_text"], doc["file_name"])
         now = datetime.now(timezone.utc)
         updated = await self.collection.find_one_and_update(
-            {"_id": ObjectId(resume_id)},
+            query,
             {
                 "$set": {
                     "display_name": metadata.display_name or doc.get("display_name"),
@@ -296,20 +288,18 @@ class ResumeService:
         return format_resume_doc(updated)
 
     async def set_default_resume(self, resume_id: str, user_id: Optional[Any] = None) -> Optional[ResumeResponse]:
-        if not ObjectId.is_valid(resume_id):
+        if not ObjectId.is_valid(resume_id) or not user_id:
             return None
-        target_query = {"_id": ObjectId(resume_id)}
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            target_query["user_id"] = {"$in": u_oids + [str(user_id)]}
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        target_query = {"_id": ObjectId(resume_id), "user_id": {"$in": u_oids + [str(user_id)]}}
         target = await self.collection.find_one(target_query)
         if not target:
             return None
         u_match = target.get("user_id")
-        q = {"user_id": u_match} if u_match else {}
+        q = {"user_id": {"$in": u_oids + [str(u_match)]}} if u_match else {}
         await self.collection.update_many(q, {"$set": {"is_default": False}})
         updated = await self.collection.find_one_and_update(
-            {"_id": ObjectId(resume_id)},
+            target_query,
             {"$set": {"is_default": True, "updated_at": datetime.now(timezone.utc)}},
             return_document=True
         )

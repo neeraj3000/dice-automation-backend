@@ -121,9 +121,11 @@ class JobService:
         return jobs
 
     async def delete_job(self, job_id: str, user_id: Optional[str] = None) -> bool:
-        if not ObjectId.is_valid(job_id):
+        if not ObjectId.is_valid(job_id) or not user_id:
             return False
-        q = {"_id": ObjectId(job_id)}
+        u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        u_query.append(str(user_id))
+        q = {"_id": ObjectId(job_id), "user_id": {"$in": u_query}}
         res = await self.jobs_col.delete_one(q)
         return res.deleted_count > 0
 
@@ -139,29 +141,29 @@ class JobService:
         return {"message": f"Successfully deleted {res.deleted_count} jobs", "count": res.deleted_count}
 
     async def get_job_by_id(self, job_id: str, user_id: Optional[str] = None) -> Optional[JobResponse]:
-        if not ObjectId.is_valid(job_id):
+        if not ObjectId.is_valid(job_id) or not user_id:
             return None
-        query = {"_id": ObjectId(job_id)}
-        if user_id:
-            u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            u_query.append(str(user_id))
-            query["user_id"] = {"$in": u_query}
+        u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        u_query.append(str(user_id))
+        query = {"_id": ObjectId(job_id), "user_id": {"$in": u_query}}
         doc = await self.jobs_col.find_one(query)
         if not doc:
             return None
         # Fallback check if failure_reason exists on associated application
         if not doc.get("failure_reason"):
-            app_doc = await get_database().applications.find_one({"job_id": ObjectId(job_id)})
+            app_doc = await get_database().applications.find_one({"job_id": ObjectId(job_id), "user_id": {"$in": u_query}})
             if app_doc and app_doc.get("failure_reason"):
                 doc["failure_reason"] = app_doc["failure_reason"]
                 if doc.get("status") not in ["APPLIED", "FAILED"] and app_doc.get("status") in ["FAILED", "REVIEW"]:
                     doc["status"] = app_doc["status"]
         return format_job_doc(doc)
 
-    async def analyze_job(self, job_id: str) -> JobResponse:
-        if not ObjectId.is_valid(job_id):
-            raise HTTPException(status_code=400, detail="Invalid job ID")
-        doc = await self.jobs_col.find_one({"_id": ObjectId(job_id)})
+    async def analyze_job(self, job_id: str, user_id: Optional[str] = None) -> JobResponse:
+        if not ObjectId.is_valid(job_id) or not user_id:
+            raise HTTPException(status_code=400, detail="Invalid job ID or missing user")
+        u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        u_query.append(str(user_id))
+        doc = await self.jobs_col.find_one({"_id": ObjectId(job_id), "user_id": {"$in": u_query}})
         if not doc:
             raise HTTPException(status_code=404, detail="Job not found")
 
@@ -175,7 +177,7 @@ class JobService:
         jd_structured = await jd_service.analyze_job_description(raw_desc, doc.get("title", ""))
         
         updated = await self.jobs_col.find_one_and_update(
-            {"_id": ObjectId(job_id)},
+            {"_id": ObjectId(job_id), "user_id": {"$in": u_query}},
             {
                 "$set": {
                     "description_raw": raw_desc,
@@ -189,13 +191,11 @@ class JobService:
         return format_job_doc(updated)
 
     async def match_job(self, job_id: str, user_id: Optional[str] = None) -> JobResponse:
-        if not ObjectId.is_valid(job_id):
-            raise HTTPException(status_code=400, detail="Invalid job ID")
-        query = {"_id": ObjectId(job_id)}
-        if user_id:
-            u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            u_query.append(str(user_id))
-            query["user_id"] = {"$in": u_query}
+        if not ObjectId.is_valid(job_id) or not user_id:
+            raise HTTPException(status_code=400, detail="Invalid job ID or missing user")
+        u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        u_query.append(str(user_id))
+        query = {"_id": ObjectId(job_id), "user_id": {"$in": u_query}}
         doc = await self.jobs_col.find_one(query)
         if not doc:
             raise HTTPException(status_code=404, detail="Job not found")

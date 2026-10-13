@@ -26,14 +26,32 @@ SKILL_KEYWORDS = [
 ]
 
 def extract_text_from_pdf(file_path: Path) -> str:
-    import pymupdf
     text = []
-    with pymupdf.open(file_path) as doc:
-        for page in doc:
-            page_text = page.get_text()
+    mu_err = None
+    try:
+        import pymupdf
+        with pymupdf.open(file_path) as doc:
+            for page in doc:
+                page_text = page.get_text()
+                if page_text:
+                    text.append(page_text)
+        return "\n".join(text).strip()
+    except (ImportError, Exception) as err:
+        mu_err = err
+
+    # Fallback to pypdf when PyMuPDF is unavailable or raises DLL/runtime error
+    try:
+        import pypdf
+        reader = pypdf.PdfReader(str(file_path))
+        for page in reader.pages:
+            page_text = page.extract_text()
             if page_text:
                 text.append(page_text)
-    return "\n".join(text).strip()
+        return "\n".join(text).strip()
+    except ImportError:
+        raise RuntimeError(f"No supported PDF parser available (pymupdf error: {mu_err})")
+    except Exception as pdf_err:
+        raise ValueError(f"Failed to parse PDF document: {pdf_err}")
 
 def extract_text_from_docx(file_path: Path) -> str:
     import docx

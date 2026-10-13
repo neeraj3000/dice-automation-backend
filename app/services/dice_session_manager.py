@@ -43,13 +43,13 @@ class DiceSessionManager:
     def current_status(self) -> str:
         return self._status
 
-    async def subscribe(self) -> asyncio.Queue:
+    async def subscribe(self, user_id: Optional[str] = None) -> asyncio.Queue:
         """Subscribes an SSE client to receive real-time session status events."""
         queue: asyncio.Queue = asyncio.Queue(maxsize=50)
         self._subscribers.add(queue)
 
-        # Send current status immediately upon connection
-        current_dice_status = await settings_service.get_dice_status(check_live=False)
+        # Send current status immediately upon connection, scoped to authenticated user
+        current_dice_status = await settings_service.get_dice_status(check_live=False, user_id=user_id)
         init_event = {
             "type": "INIT_STATE",
             "manager_status": self._status,
@@ -82,9 +82,9 @@ class DiceSessionManager:
         for dq in dead_queues:
             self._subscribers.discard(dq)
 
-    async def event_generator(self) -> AsyncGenerator[str, None]:
+    async def event_generator(self, user_id: Optional[str] = None) -> AsyncGenerator[str, None]:
         """Async generator streaming SSE events to HTTP clients."""
-        queue = await self.subscribe()
+        queue = await self.subscribe(user_id=user_id)
         try:
             while True:
                 try:

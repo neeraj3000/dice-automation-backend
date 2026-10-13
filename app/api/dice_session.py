@@ -30,26 +30,22 @@ class DiceSessionStatusResponse(BaseModel):
 @router.get("/dice/session/status", response_model=DiceSessionStatusResponse)
 @router.get("/api/dice/session/status", response_model=DiceSessionStatusResponse, include_in_schema=False)
 async def get_dice_session_status(
+    user_id: Optional[str] = Query(None, description="Optional user ID filter"),
     check_live: bool = Query(False, description="Verify live via Playwright browser navigation"),
-    user_id: Optional[str] = Query(None, description="User ID for isolated session storage"),
     user: Optional[dict] = Depends(get_current_user_optional)
 ) -> DiceSessionStatusResponse:
     """
-    Returns current Dice session health status.
+    Returns current Dice session health status for the authenticated user.
     
     Security:
     - Never returns tokens, cookies, credentials, or localStorage values.
+    - If authenticated, strictly bound to caller's user identity to prevent IDOR probing.
     - If authentication fails or session is expired, connected is always false.
     """
-    target_user_id = (str(user["_id"]) if user else None) or user_id
-    if not target_user_id:
-        return DiceSessionStatusResponse(
-            connected=False,
-            status=SessionState.LOGIN_REQUIRED,
-            last_verified_at=None,
-            expires_at=None
-        )
-
+    if user:
+        target_user_id = str(user["_id"])
+    else:
+        target_user_id = user_id or "default"
     store = get_session_store()
     session = await store.get_session(target_user_id)
 

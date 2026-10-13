@@ -25,11 +25,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def create_access_token(user_id: str) -> str:
+def create_access_token(user_id: str, minutes: int | None = None) -> str:
+    exp_mins = minutes if minutes is not None else settings.access_token_minutes
     payload = {
         "sub": str(user_id),
         "type": "access",
-        "exp": _now() + timedelta(minutes=settings.access_token_minutes),
+        "exp": _now() + timedelta(minutes=exp_mins),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 

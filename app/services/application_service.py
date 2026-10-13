@@ -311,10 +311,14 @@ class ApplicationService:
         qs = await q_cursor.to_list(20)
         return format_app_doc(doc, qs)
 
-    async def submit_application(self, app_id: str) -> ApplicationResponse:
+    async def submit_application(self, app_id: str, user_id: Optional[str] = None) -> ApplicationResponse:
         if not ObjectId.is_valid(app_id):
             raise HTTPException(status_code=400, detail="Invalid application ID")
-        app_doc = await self.apps_col.find_one({"_id": ObjectId(app_id)})
+        query: Dict[str, Any] = {"_id": ObjectId(app_id)}
+        if user_id:
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            query["user_id"] = {"$in": u_oids + [str(user_id)]}
+        app_doc = await self.apps_col.find_one(query)
         if not app_doc:
             raise HTTPException(status_code=404, detail="Application not found")
 
@@ -468,16 +472,15 @@ class ApplicationService:
         return items
 
     async def answer_review_question(self, question_id: str, answer_text: str, user_id: Optional[Any] = None) -> bool:
-        if not ObjectId.is_valid(question_id):
+        if not ObjectId.is_valid(question_id) or not user_id:
             return False
         q_doc = await self.answers_col.find_one({"_id": ObjectId(question_id)})
         if not q_doc:
             return False
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            app = await self.apps_col.find_one({"_id": q_doc.get("application_id"), "user_id": {"$in": u_oids + [str(user_id)]}})
-            if not app:
-                return False
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        app = await self.apps_col.find_one({"_id": q_doc.get("application_id"), "user_id": {"$in": u_oids + [str(user_id)]}})
+        if not app:
+            return False
         q_doc = await self.answers_col.find_one_and_update(
             {"_id": ObjectId(question_id)},
             {
@@ -512,10 +515,14 @@ class ApplicationService:
                 )
         return True
 
-    async def answer_application_batch(self, app_id: str, answers: List[Dict[str, Any]]) -> Optional[ApplicationResponse]:
+    async def answer_application_batch(self, app_id: str, answers: List[Dict[str, Any]], user_id: Optional[str] = None) -> Optional[ApplicationResponse]:
         if not ObjectId.is_valid(app_id):
             return None
-        app = await self.apps_col.find_one({"_id": ObjectId(app_id)})
+        query: Dict[str, Any] = {"_id": ObjectId(app_id)}
+        if user_id:
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            query["user_id"] = {"$in": u_oids + [str(user_id)]}
+        app = await self.apps_col.find_one(query)
         if not app:
             return None
 

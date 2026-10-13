@@ -114,20 +114,57 @@
   // 1. Initial sync on page load / script injection
   broadcastAuthToExtension();
 
-  // 2. Listen to custom window events from React frontend
+  // 2. Listen to custom window events from React frontend with strict origin & payload validation
+  const TRUSTED_ORIGINS = new Set([
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://apply2hire.com",
+    "https://www.apply2hire.com",
+    "https://app.apply2hire.com",
+    window.location.origin
+  ]);
+
   window.addEventListener("message", (event) => {
-    if (event.data && event.data.type === "APPLY2HIRE_AUTH_SYNC") {
-      const { user, token } = event.data;
-      if (user && typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+    // 1. Verify message source is the local window
+    if (event.source !== window) return;
+
+    // 2. Verify origin matches trusted application allowlist
+    if (!event.origin || !TRUSTED_ORIGINS.has(event.origin)) {
+      return;
+    }
+
+    // 3. Verify event data structure and avoid oversized payloads
+    if (!event.data || typeof event.data !== "object") return;
+
+    const { type, user, token } = event.data;
+
+    if (type === "APPLY2HIRE_AUTH_SYNC") {
+      // Validate user object schema and token
+      if (!user || typeof user !== "object") return;
+      const email = typeof user.email === "string" ? user.email.trim() : "";
+      const id = typeof user.id === "string" ? user.id.trim() : (typeof user._id === "string" ? user._id.trim() : "");
+      if (!email && !id) return;
+
+      const safeUser = {
+        id: id || undefined,
+        email: email || undefined,
+        name: typeof user.name === "string" ? user.name.slice(0, 100) : ""
+      };
+
+      const safeToken = typeof token === "string" && token.length < 4096 ? token : "session_token";
+
+      if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
         try {
           chrome.runtime.sendMessage({
             action: "SYNC_APP_AUTH",
-            user,
-            token: token || "session_token"
+            user: safeUser,
+            token: safeToken
           });
         } catch (_) {}
       }
-    } else if (event.data && (event.data.type === "APPLY2HIRE_AUTH_LOGOUT" || event.data.type === "LOGOUT")) {
+    } else if (type === "APPLY2HIRE_AUTH_LOGOUT" || type === "LOGOUT") {
       if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
         try {
           chrome.runtime.sendMessage({ action: "CLEAR_APP_AUTH" });

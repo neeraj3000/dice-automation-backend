@@ -27,6 +27,32 @@ from app.api import resumes, search, jobs, applications, review, settings as set
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup validation for production security
+    if settings.is_prod:
+        known_defaults = {
+            "dice-auto-apply-default-jwt-secret-key-32bytes-min",
+            "secret", "change-me", "changeme", "default", "your-secret-key", "jwt-secret"
+        }
+        if not settings.JWT_SECRET or settings.JWT_SECRET in known_defaults or len(settings.JWT_SECRET.strip()) < 32:
+            raise RuntimeError(
+                "CRITICAL: JWT_SECRET must be configured with a secure, random secret (min 32 characters) in production."
+            )
+        if not settings.SESSION_ENCRYPTION_KEY or not settings.SESSION_ENCRYPTION_KEY.strip():
+            raise RuntimeError(
+                "CRITICAL: SESSION_ENCRYPTION_KEY must be configured with a valid encryption key in production."
+            )
+        from app.services.session_store import SessionEncryption
+        try:
+            SessionEncryption.derive_key(settings.SESSION_ENCRYPTION_KEY)
+        except Exception as e:
+            raise RuntimeError(f"CRITICAL: SESSION_ENCRYPTION_KEY is invalid in production: {e}")
+
+        cors_env = (settings.CORS_ORIGINS or "").strip()
+        if not cors_env or cors_env == "*":
+            raise RuntimeError(
+                "CRITICAL: In production, CORS_ORIGINS must be set to explicit trusted origins and cannot be '*' or empty when credentials are enabled."
+            )
+
     # Startup: Connect to MongoDB and set up indexes
     try:
         await connect_db()
@@ -109,36 +135,40 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configuration
-cors_origins_env = settings.CORS_ORIGINS or os.environ.get("CORS_ORIGINS", "")
-allowed_origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://www.dice.com",
-    "https://dice.com",
-    "https://profile.dice.com",
-    "https://customer.dice.com",
-    "https://login.dice.com",
-    "https://dashboard.dice.com",
-]
-if cors_origins_env and cors_origins_env != "*":
-    for origin in cors_origins_env.split(","):
-        if origin.strip() and origin.strip() not in allowed_origins:
-            allowed_origins.append(origin.strip())
+# CORS configuration: strict allowlist
+cors_origins_env = (settings.CORS_ORIGINS or os.environ.get("CORS_ORIGINS", "")).strip()
+chrome_ext_id = (os.environ.get("CHROME_EXTENSION_ID") or "").strip()
 
-cors_kwargs = {
-    "allow_methods": ["*"],
-    "allow_headers": ["*"],
-    "allow_credentials": True,
-}
-if cors_origins_env == "*" or not cors_origins_env:
-    # Allow all HTTP/HTTPS origins and Chrome Extensions safely with regex while preserving credentials
-    cors_kwargs["allow_origin_regex"] = r"^(https?://.*|chrome-extension://.*)"
+if settings.is_prod:
+    # In production, require explicit configured origins only (never arbitrary regex or wildcards)
+    explicit_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip() and o.strip() != "*"]
+    if chrome_ext_id:
+        explicit_origins.append(f"chrome-extension://{chrome_ext_id}")
+    cors_kwargs = {
+        "allow_origins": explicit_origins,
+        "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        "allow_headers": ["Authorization", "Content-Type", "Accept", "X-Refresh-Token"],
+        "allow_credentials": True,
+    }
 else:
-    cors_kwargs["allow_origins"] = allowed_origins
-    cors_kwargs["allow_origin_regex"] = r"^((https?://([a-zA-Z0-9-]+\.)*dice\.com(:[0-9]+)?)|chrome-extension://.*)"
+    # Development: allow approved local development origins and configured origins
+    dev_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    for o in [x.strip() for x in cors_origins_env.split(",") if x.strip() and x.strip() != "*"]:
+        if o not in dev_origins:
+            dev_origins.append(o)
+    if chrome_ext_id:
+        dev_origins.append(f"chrome-extension://{chrome_ext_id}")
+    cors_kwargs = {
+        "allow_origins": dev_origins,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+        "allow_credentials": True,
+    }
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
 

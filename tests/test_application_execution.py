@@ -599,11 +599,21 @@ async def test_api_queue_and_status_endpoints():
     })
     job_id = str(job_ins.inserted_id)
 
+    from app.core.security import create_access_token
+    token = create_access_token(user_id)
+    headers = {"Authorization": f"Bearer {token}"}
+    if db is not None:
+        await db.users.update_one(
+            {"_id": ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id},
+            {"$set": {"email": "api_test@example.com", "name": "API Test User"}},
+            upsert=True
+        )
+
     transport = ASGITransport(app=app)
     with patch("app.services.application_runner.application_runner.run_application"):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             # 1. Test POST /applications/queue
-            q_res = await client.post("/api/applications/queue", json={
+            q_res = await client.post("/api/applications/queue", headers=headers, json={
                 "job_id": job_id,
                 "user_id": user_id,
                 "mode": "APPLY"
@@ -614,7 +624,7 @@ async def test_api_queue_and_status_endpoints():
             app_id = q_data["application_id"]
 
             # 2. Test GET /applications/queue/status
-            qs_res = await client.get("/api/applications/queue/status")
+            qs_res = await client.get("/api/applications/queue/status", headers=headers)
             assert qs_res.status_code == 200
             qs_data = qs_res.json()
             assert "is_worker_running" in qs_data
@@ -622,7 +632,7 @@ async def test_api_queue_and_status_endpoints():
             assert qs_data["counts_by_status"].get(ApplicationState.QUEUED, 0) >= 1
 
             # 3. Test GET /applications/{app_id}/status
-            astat_res = await client.get(f"/api/applications/{app_id}/status")
+            astat_res = await client.get(f"/api/applications/{app_id}/status", headers=headers)
             assert astat_res.status_code == 200
             astat_data = astat_res.json()
             assert astat_data["id"] == app_id

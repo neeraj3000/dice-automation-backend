@@ -233,7 +233,7 @@ async def test_enqueue_never_uses_another_users_resume(test_db):
 
 
 @pytest.mark.anyio
-async def test_repair_script_clears_cross_user_matches(test_db):
+async def test_repair_script_clears_cross_user_matches(test_db, tmp_path):
     import importlib.util
     from pathlib import Path
 
@@ -254,12 +254,16 @@ async def test_repair_script_clears_cross_user_matches(test_db):
             "status": "MATCHED", "match_result": {"recommended_resume_id": rid, "alternatives": []}}})
         await test_db.job_matches.insert_one({"job_id": jid, "recommended_resume_id": rid})
 
-    dry = await fix.repair(apply=False, rematch=False)
+    dry = await fix.repair(apply=False, rematch=False, backup_dir=tmp_path)
     assert dry["affected_jobs"] == 2
     assert (await test_db.jobs.find_one({"_id": ObjectId(bad_job)}))["match_result"]  # dry run changes nothing
 
-    res = await fix.repair(apply=True, rematch=True)
+    res = await fix.repair(apply=True, rematch=True, backup_dir=tmp_path)
     assert res == {"affected_jobs": 2, "foreign_applications": 0, "rematched": 2}
+
+    # Verify backup artifact was written into tmp_path and NOT into scripts/backups/
+    written_backups = list(tmp_path.glob("jobs_cross_user_matches_*.json"))
+    assert len(written_backups) == 1
 
     for jid in (bad_job, orphan_job):
         job = await test_db.jobs.find_one({"_id": ObjectId(jid)})
@@ -267,4 +271,4 @@ async def test_repair_script_clears_cross_user_matches(test_db):
     good = await test_db.jobs.find_one({"_id": ObjectId(good_job)})
     assert good["match_result"]["recommended_resume_id"] == alice_resume
     assert await test_db.job_matches.count_documents({"recommended_resume_id": bob_resume}) == 0
-    assert (await fix.repair(apply=False, rematch=False))["affected_jobs"] == 0
+    assert (await fix.repair(apply=False, rematch=False, backup_dir=tmp_path))["affected_jobs"] == 0

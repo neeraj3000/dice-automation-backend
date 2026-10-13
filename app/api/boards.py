@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import Optional
 
 from app.boards.registry import BOARDS, get_board
-from app.core.deps import get_current_user_optional
+from app.core.deps import get_current_user, get_current_user_optional
 from app.services.session_store import session_store
 from app.services.dice_session_manager import dice_session_manager
 
@@ -10,20 +10,25 @@ router = APIRouter(prefix="/boards", tags=["boards"])
 
 
 async def _resolve_dice_session(user: Optional[dict]):
-    """Helper to resolve active Dice session for the current environment/user."""
+    """Helper to resolve active Dice session strictly for the authenticated user."""
+    if not user:
+        return {
+            "is_connected": False,
+            "username": "",
+            "email": "",
+            "last_verified_at": None,
+            "cookies_count": 0,
+        }
+
     from app.database import get_database
     from bson import ObjectId
     db = get_database()
 
-    uid = None
-    u_oids = []
-    u_strs = []
-    if user:
-        uid = str(user["_id"])
-        u_oids = [ObjectId(uid)] if ObjectId.is_valid(uid) else []
-        u_strs = [uid]
-        if user.get("email"):
-            u_strs.append(user["email"].strip().lower())
+    uid = str(user["_id"])
+    u_oids = [ObjectId(uid)] if ObjectId.is_valid(uid) else []
+    u_strs = [uid]
+    if user.get("email"):
+        u_strs.append(user["email"].strip().lower())
 
     is_conn = False
     username = ""
@@ -31,9 +36,9 @@ async def _resolve_dice_session(user: Optional[dict]):
     last_verified = None
     cookies_count = 0
 
-    # 1. Check board_connections in DB (if authenticated)
+    # 1. Check board_connections in DB for this user
     bc = None
-    if db is not None and user:
+    if db is not None:
         bc = await db.board_connections.find_one({
             "user_id": {"$in": u_oids + u_strs},
             "$or": [{"board": "dice"}, {"board_key": "dice"}]
@@ -49,10 +54,10 @@ async def _resolve_dice_session(user: Optional[dict]):
                 last_verified = bc["last_verified_at"].isoformat() if hasattr(bc["last_verified_at"], "isoformat") else str(bc["last_verified_at"])
             elif bc.get("connected_at"):
                 last_verified = bc["connected_at"].isoformat() if hasattr(bc["connected_at"], "isoformat") else str(bc["connected_at"])
+            cookies_count = bc.get("cookies_count", 0)
 
-    # 2. Check user-scoped session in session_store
-    sess = None
-    if not is_conn and user:
+    # 2. Check user-scoped session in session_store (strictly for this user)
+    if not is_conn:
         sess = await session_store.get_session(user_id=uid)
         if not sess and user.get("email"):
             sess = await session_store.get_session(user_id=user["email"].strip().lower())
@@ -69,57 +74,6 @@ async def _resolve_dice_session(user: Optional[dict]):
                 if sess.last_verified_at:
                     last_verified = sess.last_verified_at.isoformat()
                 cookies_count = len(sess.cookies)
-
-    # 3. Check default session in session_store (fallback)
-    if not is_conn:
-        default_sess = await session_store.get_session(user_id="default")
-        if default_sess:
-            sess_conn = bool(
-                getattr(default_sess, "is_connected", False) is True
-                or str(getattr(default_sess, "status", "")).upper() in ("CONNECTED", "VALID")
-            )
-            if sess_conn:
-                is_conn = True
-                username = getattr(default_sess, "username", "") or username
-                email = getattr(default_sess, "email", "") or email
-                if default_sess.last_verified_at:
-                    last_verified = default_sess.last_verified_at.isoformat()
-                cookies_count = len(default_sess.cookies)
-
-    # 4. Check settings_service host session (from extension / local storage)
-    if not is_conn:
-        from app.services.settings_service import settings_service
-        status_res = await settings_service.get_dice_status(check_live=False)
-        if status_res.get("is_connected"):
-            is_conn = True
-            username = status_res.get("username", username) or username
-            email = status_res.get("email", email) or email
-            last_verified = status_res.get("last_verified", last_verified) or last_verified
-            cookies_count = status_res.get("cookies_count", 0) or cookies_count
-
-    # If connected and user is authenticated, sync back to DB board_connections
-    if is_conn and user and db is not None:
-        try:
-            from datetime import datetime, timezone
-            await db.board_connections.update_one(
-                {"user_id": uid, "$or": [{"board": "dice"}, {"board_key": "dice"}]},
-                {
-                    "$set": {
-                        "user_id": uid,
-                        "board": "dice",
-                        "board_key": "dice",
-                        "status": "CONNECTED",
-                        "is_connected": True,
-                        "username": username,
-                        "email": email,
-                        "last_verified_at": last_verified or datetime.now(timezone.utc).isoformat(),
-                        "cookies_count": cookies_count,
-                    }
-                },
-                upsert=True
-            )
-        except Exception:
-            pass
 
     return {
         "is_connected": is_conn,
@@ -168,7 +122,7 @@ async def board_status(key: str, user: Optional[dict] = Depends(get_current_user
 
 
 @router.post("/{key}/connect", status_code=202)
-async def connect_board(key: str, user: Optional[dict] = Depends(get_current_user_optional)):
+async def connect_board(key: str, user: dict = Depends(get_current_user)):
     b = get_board(key)
     return {
         "status": "WAITING_FOR_SYNC",
@@ -185,7 +139,7 @@ async def connect_board(key: str, user: Optional[dict] = Depends(get_current_use
 
 
 @router.post("/{key}/verify")
-async def verify_board(key: str, user: Optional[dict] = Depends(get_current_user_optional)):
+async def verify_board(key: str, user: dict = Depends(get_current_user)):
     get_board(key)
     dice_info = await _resolve_dice_session(user)
     is_conn = dice_info["is_connected"] if key == "dice" else False
@@ -204,10 +158,10 @@ async def verify_board(key: str, user: Optional[dict] = Depends(get_current_user
 async def import_board_cookies(
     key: str,
     cookies: list[dict] = Body(..., max_length=500),
-    user: Optional[dict] = Depends(get_current_user_optional)
+    user: dict = Depends(get_current_user)
 ):
     get_board(key)
-    user_id = str(user["_id"]) if user else "default"
+    user_id = str(user["_id"])
     from app.services.settings_service import settings_service
     res = await settings_service.import_dice_session(cookies=cookies, user_id=user_id)
     is_connected = bool(res.get("is_connected", False))
@@ -227,13 +181,12 @@ async def disconnect_board(key: str, user: Optional[dict] = Depends(get_current_
     if key == "dice":
         from app.services.settings_service import settings_service
         await settings_service.disconnect_dice(user_id=user_id)
-        await settings_service.disconnect_dice(user_id="default")
 
     from app.database import get_database
     db = get_database()
-    if db is not None and user:
+    if db is not None:
         from bson import ObjectId
-        uid = user["_id"]
+        uid = user["_id"] if user else "default"
         u_oids = [ObjectId(uid)] if ObjectId.is_valid(uid) else []
         await db.board_connections.update_many(
             {"user_id": {"$in": u_oids + [str(uid)]}, "$or": [{"board": key}, {"board_key": key}]},

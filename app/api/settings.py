@@ -2,8 +2,8 @@ from datetime import timezone
 from datetime import datetime
 import asyncio
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, Body
-from app.core.deps import get_current_user_optional
+from fastapi import APIRouter, Depends, Body, HTTPException
+from app.core.deps import get_current_user, get_current_user_optional, get_current_user_sse
 from app.database import get_database
 from app.schemas.user_profile import UserProfileSchema, AppSettingsSchema
 from app.services.settings_service import settings_service
@@ -29,12 +29,12 @@ async def _resolve_avatar(user: Optional[dict]) -> dict:
     return {"avatar": None, "avatar_url": None, "avatar_public_id": None}
 
 @router.get("/profile", response_model=UserProfileSchema)
-async def get_user_profile(user: Optional[dict] = Depends(get_current_user_optional)):
-    uid = str(user["_id"]) if user else "default"
+async def get_user_profile(user: dict = Depends(get_current_user)):
+    uid = str(user["_id"])
     prof = await settings_service.get_profile(user_id=uid)
-    if user and not prof.email:
+    if not prof.email:
         prof.email = user.get("email", "")
-    if user and not prof.first_name and not prof.last_name:
+    if not prof.first_name and not prof.last_name:
         name_parts = (user.get("name") or "").split()
         if name_parts:
             prof.first_name = name_parts[0]
@@ -44,8 +44,8 @@ async def get_user_profile(user: Optional[dict] = Depends(get_current_user_optio
     return prof
 
 @router.put("/profile", response_model=UserProfileSchema)
-async def update_user_profile(profile: UserProfileSchema, user: Optional[dict] = Depends(get_current_user_optional)):
-    uid = str(user["_id"]) if user else "default"
+async def update_user_profile(profile: UserProfileSchema, user: dict = Depends(get_current_user)):
+    uid = str(user["_id"])
     # The avatar is owned by /avatar; never persist a (possibly stale) copy sent with the form.
     for k in AVATAR_FIELDS:
         setattr(profile, k, None)
@@ -55,13 +55,13 @@ async def update_user_profile(profile: UserProfileSchema, user: Optional[dict] =
     return saved
 
 @router.get("/settings")
-async def get_app_settings(user: Optional[dict] = Depends(get_current_user_optional)):
-    uid = str(user["_id"]) if user else "default"
+async def get_app_settings(user: dict = Depends(get_current_user)):
+    uid = str(user["_id"])
     app_cfg = await settings_service.get_settings(user_id=uid)
     prof = await settings_service.get_profile(user_id=uid)
-    if user and not prof.email:
+    if not prof.email:
         prof.email = user.get("email", "")
-    if user and not prof.first_name and not prof.last_name:
+    if not prof.first_name and not prof.last_name:
         name_parts = (user.get("name") or "").split()
         if name_parts:
             prof.first_name = name_parts[0]
@@ -85,8 +85,8 @@ async def get_app_settings(user: Optional[dict] = Depends(get_current_user_optio
     return data
 
 @router.put("/settings")
-async def update_app_settings(body: Dict[str, Any] = Body(...), user: Optional[dict] = Depends(get_current_user_optional)):
-    uid = str(user["_id"]) if user else "default"
+async def update_app_settings(body: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+    uid = str(user["_id"])
 
     if "profile" in body and isinstance(body["profile"], dict):
         p_raw = dict(body["profile"])
@@ -121,15 +121,22 @@ from fastapi.responses import StreamingResponse
 from app.services.dice_session_manager import dice_session_manager
 
 @router.post("/settings/open-dice-login")
-async def open_dice_login():
+async def open_dice_login(user: dict = Depends(get_current_user)):
     """Opens a visible browser page to the Dice login screen (local) or provides instructions (cloud)."""
     return await dice_session_manager.start_interactive_login()
 
+@router.post("/settings/dice-session/stream-ticket")
+async def get_stream_ticket(user: dict = Depends(get_current_user)):
+    """Generates a short-lived (60s) single-purpose ticket for connecting to the SSE stream."""
+    from app.core.security import create_access_token
+    ticket = create_access_token(str(user["_id"]), minutes=1)
+    return {"ticket": ticket}
+
 @router.get("/settings/dice-session/stream")
-async def stream_dice_session():
+async def stream_dice_session(user: dict = Depends(get_current_user_sse)):
     """Real-time Server-Sent Events (SSE) stream for Dice session connection status."""
     return StreamingResponse(
-        dice_session_manager.event_generator(),
+        dice_session_manager.event_generator(user_id=str(user["_id"])),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -147,34 +154,44 @@ class SessionImportPayload(BaseModel):
     local_storage: Optional[Dict[str, Any]] = None
 
 @router.post("/settings/import-dice-session")
-async def import_dice_session(payload: SessionImportPayload):
+async def import_dice_session(payload: SessionImportPayload, user: dict = Depends(get_current_user)):
     """Imports Dice session cookies into MongoDB and browser context for cloud deployments."""
+    if payload.cookie_string and len(payload.cookie_string) > 100_000:
+        raise HTTPException(status_code=400, detail="Cookie string exceeds maximum allowed size")
+    if payload.cookies and len(payload.cookies) > 500:
+        raise HTTPException(status_code=400, detail="Too many cookies in payload")
+    if payload.local_storage and len(payload.local_storage) > 100:
+        raise HTTPException(status_code=400, detail="Too many localStorage keys in payload")
+
+    user_id = str(user["_id"])
     return await settings_service.import_dice_session(
         cookies=payload.cookies,
         cookie_string=payload.cookie_string,
         username=payload.username,
-        local_storage=payload.local_storage
+        local_storage=payload.local_storage,
+        user_id=user_id
     )
 
 @router.get("/settings/dice-status")
-async def get_dice_status(check_live: bool = False):
+async def get_dice_status(check_live: bool = False, user: dict = Depends(get_current_user)):
     """Returns the current Dice account connection status."""
-    return await settings_service.get_dice_status(check_live=check_live)
+    user_id = str(user["_id"])
+    return await settings_service.get_dice_status(check_live=check_live, user_id=user_id)
 
 @router.post("/settings/disconnect-dice")
-async def disconnect_dice(user: Optional[dict] = Depends(get_current_user_optional)):
+async def disconnect_dice(user: dict = Depends(get_current_user)):
     """Disconnects the local Dice session, removes local cookies, and resets state."""
-    user_id = str(user["_id"]) if user else "default"
+    user_id = str(user["_id"])
     return await settings_service.disconnect_dice(user_id=user_id)
 
 @router.get("/settings/browser-status")
-async def get_browser_status():
+async def get_browser_status(user: dict = Depends(get_current_user)):
     """Returns Playwright browser binary presence and environment status."""
     from app.browser.playwright_manager import playwright_manager
     return await playwright_manager.get_browser_status()
 
 @router.post("/settings/install-browser")
-async def install_browser():
+async def install_browser(user: dict = Depends(get_current_user)):
     """Verifies presence of Playwright Chromium browser binary."""
     from app.browser.playwright_manager import playwright_manager
     installed = await playwright_manager.ensure_browser_installed()

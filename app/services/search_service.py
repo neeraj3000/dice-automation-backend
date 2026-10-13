@@ -42,15 +42,10 @@ class SearchService:
         return format_profile_doc(doc)
 
     async def get_profiles(self, user_id: Optional[Any] = None) -> List[SearchProfileResponse]:
-        query = {}
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            query["$or"] = [
-                {"user_id": {"$in": u_oids + [str(user_id)]}},
-                {"user_id": {"$exists": False}},
-                {"user_id": None},
-                {"user_id": "default"}
-            ]
+        if not user_id:
+            return []
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        query = {"user_id": {"$in": u_oids + [str(user_id)]}}
         cursor = self.profiles_col.find(query).sort("created_at", -1)
         profiles = []
         async for doc in cursor:
@@ -58,32 +53,18 @@ class SearchService:
         return profiles
 
     async def get_profile_by_id(self, profile_id: str, user_id: Optional[Any] = None) -> Optional[SearchProfileResponse]:
-        if not ObjectId.is_valid(profile_id):
+        if not ObjectId.is_valid(profile_id) or not user_id:
             return None
-        query: Dict[str, Any] = {"_id": ObjectId(profile_id)}
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            query["$or"] = [
-                {"user_id": {"$in": u_oids + [str(user_id)]}},
-                {"user_id": {"$exists": False}},
-                {"user_id": None},
-                {"user_id": "default"}
-            ]
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        query = {"_id": ObjectId(profile_id), "user_id": {"$in": u_oids + [str(user_id)]}}
         doc = await self.profiles_col.find_one(query)
         return format_profile_doc(doc) if doc else None
 
     async def update_profile(self, profile_id: str, update: SearchProfileUpdate, user_id: Optional[Any] = None) -> Optional[SearchProfileResponse]:
-        if not ObjectId.is_valid(profile_id):
+        if not ObjectId.is_valid(profile_id) or not user_id:
             return None
-        query: Dict[str, Any] = {"_id": ObjectId(profile_id)}
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            query["$or"] = [
-                {"user_id": {"$in": u_oids + [str(user_id)]}},
-                {"user_id": {"$exists": False}},
-                {"user_id": None},
-                {"user_id": "default"}
-            ]
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        query = {"_id": ObjectId(profile_id), "user_id": {"$in": u_oids + [str(user_id)]}}
         data = update.model_dump(exclude_unset=True)
         if not data:
             return await self.get_profile_by_id(profile_id, user_id=user_id)
@@ -96,17 +77,10 @@ class SearchService:
         return format_profile_doc(res) if res else None
 
     async def delete_profile(self, profile_id: str, user_id: Optional[Any] = None) -> bool:
-        if not ObjectId.is_valid(profile_id):
+        if not ObjectId.is_valid(profile_id) or not user_id:
             return False
-        query: Dict[str, Any] = {"_id": ObjectId(profile_id)}
-        if user_id:
-            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-            query["$or"] = [
-                {"user_id": {"$in": u_oids + [str(user_id)]}},
-                {"user_id": {"$exists": False}},
-                {"user_id": None},
-                {"user_id": "default"}
-            ]
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        query = {"_id": ObjectId(profile_id), "user_id": {"$in": u_oids + [str(user_id)]}}
         res = await self.profiles_col.delete_one(query)
         return res.deleted_count > 0
 
@@ -117,9 +91,10 @@ class SearchService:
         auto_queue: Optional[bool] = None,
         user_id: str = "default"
     ) -> Dict[str, Any]:
-        if not ObjectId.is_valid(profile_id):
-            raise HTTPException(status_code=400, detail="Invalid search profile ID")
-        profile = await self.profiles_col.find_one({"_id": ObjectId(profile_id)})
+        if not ObjectId.is_valid(profile_id) or not user_id:
+            raise HTTPException(status_code=400, detail="Invalid search profile ID or missing user")
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        profile = await self.profiles_col.find_one({"_id": ObjectId(profile_id), "user_id": {"$in": u_oids + [str(user_id)]}})
         if not profile:
             raise HTTPException(status_code=404, detail="Search profile not found")
 

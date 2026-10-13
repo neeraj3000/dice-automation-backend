@@ -242,12 +242,16 @@ class SettingsService:
 
         # If user_id is default or specific user had no doc, check default or latest doc
         if not doc or not doc.get("profile"):
+            if user_id and user_id != "default":
+                return UserProfileSchema()
             try:
                 doc = await self.db.settings.find_one({"user_id": "default"})
             except Exception:
                 pass
 
         if not doc or not doc.get("profile"):
+            if user_id and user_id != "default":
+                return UserProfileSchema()
             try:
                 doc = await self.db.settings.find_one(
                     {"profile": {"$exists": True, "$ne": {}}},
@@ -592,12 +596,27 @@ class SettingsService:
                 return {"is_connected": True, "reason": "Active session (verified candidate token, network ping skipped)"}
             return {"is_connected": False, "reason": f"Network verification error ({e})"}
 
-    async def get_dice_status(self, check_live: bool = False) -> Dict[str, Any]:
+    async def get_dice_status(self, check_live: bool = False, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Returns the current Dice account connection status for THIS machine.
-        Uses host-local session storage (dice_session.json) and active Playwright context.
-        Never stores or reads cookies from MongoDB.
+        Returns the current Dice account connection status.
+        Prioritizes user-scoped session when user_id is provided, otherwise falls back to host session.
         """
+        if user_id and user_id != "default":
+            try:
+                from app.services.session_store import get_session_store
+                store = get_session_store()
+                u_sess = await store.get_session(user_id)
+                if u_sess and u_sess.status == "valid":
+                    return {
+                        "is_connected": True,
+                        "username": u_sess.username or "",
+                        "email": u_sess.email or "",
+                        "cookies_count": u_sess.cookies_count or len(u_sess.cookies or []),
+                        "last_verified": u_sess.last_verified_at.isoformat() if u_sess.last_verified_at else None
+                    }
+            except Exception:
+                pass
+
         local_session = self.get_local_session()
 
         # Fast path: Return cached status immediately when check_live is False

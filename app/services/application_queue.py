@@ -119,9 +119,22 @@ class ApplicationQueueManager:
         app_oid = ObjectId(application_id)
         now = datetime.now(timezone.utc)
 
+        query: Dict[str, Any] = {"_id": app_oid}
+        if user_id and user_id != "default":
+            u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            query["user_id"] = {"$in": u_oids + [str(user_id)]}
+
+        existing = await self.apps_col.find_one(query)
+        if not existing:
+            raise ValueError(f"Application not found or unauthorized: {application_id}")
+
+        cur_status = existing.get("status")
+        if cur_status == ApplicationState.APPLYING:
+            raise ValueError(f"Application is currently in-flight (status: {cur_status})")
+
         # Mark QUEUED in MongoDB
         await self.apps_col.update_one(
-            {"_id": app_oid},
+            query,
             {"$set": {
                 "status": ApplicationState.QUEUED,
                 "mode": mode,

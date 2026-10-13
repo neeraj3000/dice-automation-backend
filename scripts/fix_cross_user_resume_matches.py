@@ -23,6 +23,7 @@ Usage:
 import sys
 import argparse
 import asyncio
+from typing import Optional
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,7 +51,7 @@ def find_bad_resume_ids(job: dict, resume_owner: dict) -> list:
     return sorted({i for i in ids if i and resume_owner.get(i) != job_owner})
 
 
-async def repair(apply: bool, rematch: bool) -> dict:
+async def repair(apply: bool, rematch: bool, backup_dir: Optional[Path] = None) -> dict:
     db = get_database()
     resume_owner = {str(r["_id"]): _owner(r.get("user_id")) async for r in db.resumes.find({}, {"user_id": 1})}
 
@@ -78,10 +79,10 @@ async def repair(apply: bool, rematch: bool) -> dict:
 
     rematched = 0
     if apply and affected:
-        backup_dir = backend_dir / "scripts" / "backups"
-        backup_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = backup_dir or (backend_dir / "scripts" / "backups")
+        target_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        backup = backup_dir / f"jobs_cross_user_matches_{settings.DATABASE_NAME}_{stamp}.json"
+        backup = target_dir / f"jobs_cross_user_matches_{settings.DATABASE_NAME}_{stamp}.json"
         backup.write_text(json_util.dumps([j for j, _ in affected], indent=1), encoding="utf-8")
         print(f"[fix] backup written: {backup}")
 

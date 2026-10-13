@@ -1,4 +1,4 @@
-from app.core.deps import get_current_user_optional
+from app.core.deps import get_current_user
 from fastapi import Depends
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
@@ -8,42 +8,42 @@ from app.services.search_service import search_service
 router = APIRouter(prefix="/search-profiles", tags=["Search Profiles"])
 
 @router.post("", response_model=SearchProfileResponse)
-async def create_profile(profile: SearchProfileCreate, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = str(user["_id"]) if user else "default"
+async def create_profile(profile: SearchProfileCreate, user: dict = Depends(get_current_user)):
+    user_id = str(user["_id"])
     return await search_service.create_profile(profile, user_id=user_id)
 
 @router.get("", response_model=List[SearchProfileResponse])
-async def list_profiles(user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = str(user["_id"]) if user else None
+async def list_profiles(user: dict = Depends(get_current_user)):
+    user_id = str(user["_id"])
     return await search_service.get_profiles(user_id=user_id)
 
 @router.get("/{profile_id}", response_model=SearchProfileResponse)
-async def get_profile(profile_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = str(user["_id"]) if user else None
+async def get_profile(profile_id: str, user: dict = Depends(get_current_user)):
+    user_id = str(user["_id"])
     res = await search_service.get_profile_by_id(profile_id, user_id=user_id)
     if not res:
         raise HTTPException(status_code=404, detail="Search profile not found")
     return res
 
 @router.put("/{profile_id}", response_model=SearchProfileResponse)
-async def update_profile(profile_id: str, update: SearchProfileUpdate, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = str(user["_id"]) if user else None
+async def update_profile(profile_id: str, update: SearchProfileUpdate, user: dict = Depends(get_current_user)):
+    user_id = str(user["_id"])
     res = await search_service.update_profile(profile_id, update, user_id=user_id)
     if not res:
         raise HTTPException(status_code=404, detail="Search profile not found")
     return res
 
 @router.delete("/{profile_id}")
-async def delete_profile(profile_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = str(user["_id"]) if user else None
+async def delete_profile(profile_id: str, user: dict = Depends(get_current_user)):
+    user_id = str(user["_id"])
     success = await search_service.delete_profile(profile_id, user_id=user_id)
     if not success:
         raise HTTPException(status_code=404, detail="Search profile not found")
     return {"success": True, "message": "Search profile deleted"}
 
 @router.post("/{profile_id}/run")
-async def run_search(profile_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = str(user["_id"]) if user else "default"
+async def run_search(profile_id: str, user: dict = Depends(get_current_user)):
+    user_id = str(user["_id"])
     return await search_service.run_search(profile_id, user_id=user_id)
 
 import asyncio
@@ -51,14 +51,13 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from fastapi import Body, Depends
 from app.database import get_database
-from app.core.deps import get_current_user_optional
 
 search_router = APIRouter(prefix="/search", tags=["Search Execution"])
 
 @search_router.post("/run", status_code=202)
-async def run_search_job(body: dict = Body(...), user: Optional[dict] = Depends(get_current_user_optional)):
+async def run_search_job(body: dict = Body(...), user: dict = Depends(get_current_user)):
     db = get_database()
-    user_id = str(user["_id"]) if user else "default"
+    user_id = str(user["_id"])
 
     existing_running = await db.searches.find_one({"user_id": user_id, "status": "RUNNING"})
     if existing_running:
@@ -145,9 +144,7 @@ async def run_search_job(body: dict = Body(...), user: Optional[dict] = Depends(
     return doc
 
 @search_router.get("/latest")
-async def get_latest_search(user: Optional[dict] = Depends(get_current_user_optional)):
-    if not user:
-        return None
+async def get_latest_search(user: dict = Depends(get_current_user)):
     db = get_database()
     user_id = user["_id"]
     u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
@@ -160,15 +157,13 @@ async def get_latest_search(user: Optional[dict] = Depends(get_current_user_opti
     return doc
 
 @search_router.get("/{search_id}")
-async def get_search_by_id(search_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
+async def get_search_by_id(search_id: str, user: dict = Depends(get_current_user)):
     if not ObjectId.is_valid(search_id):
         raise HTTPException(status_code=400, detail="Invalid search ID")
     db = get_database()
-    query = {"_id": ObjectId(search_id)}
-    if user:
-        user_id = user["_id"]
-        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-        query["user_id"] = {"$in": u_oids + [str(user_id)]}
+    user_id = user["_id"]
+    u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+    query = {"_id": ObjectId(search_id), "user_id": {"$in": u_oids + [str(user_id)]}}
     doc = await db.searches.find_one(query)
     if not doc:
         raise HTTPException(status_code=404, detail="Search not found")

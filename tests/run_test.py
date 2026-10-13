@@ -1,26 +1,52 @@
-﻿import sys
+import sys
 import asyncio
 import io
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import pymupdf
 import docx
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.database import connect_db, close_db
 
 def create_sample_pdf_bytes() -> bytes:
-    doc = pymupdf.open()
-    page = doc.new_page()
-    text = (
-        "John Doe\n"
-        "Databricks Consultant Resume\n"
-        "10+ years of experience in Databricks, PySpark, Azure, ADF, Spark, SQL, Delta Lake.\n"
-        "Summary: Senior Databricks Consultant with over 10 years experience architecting lakehouses.\n"
-    )
-    page.insert_text((50, 50), text)
-    return doc.tobytes()
+    try:
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page()
+        text = (
+            "John Doe\n"
+            "Databricks Consultant Resume\n"
+            "10+ years of experience in Databricks, PySpark, Azure, ADF, Spark, SQL, Delta Lake.\n"
+            "Summary: Senior Databricks Consultant with over 10 years experience architecting lakehouses.\n"
+        )
+        page.insert_text((50, 50), text)
+        return doc.tobytes()
+    except (ImportError, Exception):
+        pass
+
+    stream_content = b"BT /F1 12 Tf 50 700 Td (John Doe - Databricks Consultant Resume) Tj 0 -20 Td (10+ years of experience in Databricks, PySpark, Azure, ADF, Spark, SQL, Delta Lake.) Tj ET"
+    stream_len = len(stream_content)
+    pdf = bytearray()
+    pdf.extend(b"%PDF-1.4\n")
+    o1 = len(pdf)
+    pdf.extend(b"1 0 obj\n<</Type /Catalog /Pages 2 0 R>>\nendobj\n")
+    o2 = len(pdf)
+    pdf.extend(b"2 0 obj\n<</Type /Pages /Kids [3 0 R] /Count 1>>\nendobj\n")
+    o3 = len(pdf)
+    pdf.extend(b"3 0 obj\n<</Type /Page /Parent 2 0 R /Resources <</Font <</F1 4 0 R>>>> /MediaBox [0 0 612 792] /Contents 5 0 R>>\nendobj\n")
+    o4 = len(pdf)
+    pdf.extend(b"4 0 obj\n<</Type /Font /Subtype /Type1 /BaseFont /Helvetica>>\nendobj\n")
+    o5 = len(pdf)
+    pdf.extend(f"5 0 obj\n<</Length {stream_len}>>\nstream\n".encode("ascii"))
+    pdf.extend(stream_content)
+    pdf.extend(b"\nendstream\nendobj\n")
+    xref_pos = len(pdf)
+    pdf.extend(b"xref\n0 6\n0000000000 65535 f \n")
+    for offset in [o1, o2, o3, o4, o5]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(f"trailer\n<</Size 6 /Root 1 0 R>>\nstartxref\n{xref_pos}\n%%EOF\n".encode("ascii"))
+    return bytes(pdf)
 
 def create_sample_docx_bytes() -> bytes:
     doc = docx.Document()

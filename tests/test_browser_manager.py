@@ -14,7 +14,9 @@ from app.config import settings
 
 @pytest.fixture(autouse=True)
 async def cleanup_browser_contexts():
-    """Ensure contexts are cleanly shut down after each test."""
+    """Ensure contexts are cleanly shut down after each test, and skip if Chromium is not installed."""
+    if not await playwright_manager.ensure_browser_installed():
+        pytest.skip("Prerequisite not met: Playwright Chromium browser binary not installed in test environment. (Run: python -m playwright install --with-deps chromium)")
     yield
     await playwright_manager.close()
 

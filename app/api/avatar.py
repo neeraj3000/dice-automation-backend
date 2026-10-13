@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.config import settings
-from app.core.deps import get_current_user_optional
+from app.core.deps import get_current_user
 from app.database import get_database
 from app.services.cloudinary_service import is_cloudinary_configured, _configure
 
@@ -78,11 +78,11 @@ class AvatarDeleteIn(BaseModel):
 @router.post("", response_model=AvatarOut, status_code=201)
 async def upload_avatar(
     body: AvatarUploadIn,
-    user: Optional[dict] = Depends(get_current_user_optional),
+    user: dict = Depends(get_current_user),
 ):
     """Upload or replace a profile avatar. Stores in Cloudinary under avatars/<user_id>/."""
     _cloud_configured()
-    uid = str(user["_id"]) if user else "default"
+    uid = str(user["_id"])
 
     raw, ext = _data_url_to_bytes(body.image_data)
     if len(raw) > 8 * 1024 * 1024:
@@ -110,13 +110,14 @@ async def upload_avatar(
     avatar_url = result["secure_url"]
     cld_public_id = result["public_id"]
 
-    # Delete the old image if requested
+    # Delete the old image only if it belongs to this user
     if body.old_public_id and body.old_public_id != cld_public_id:
-        await _destroy(body.old_public_id)
+        if body.old_public_id.startswith(f"avatars/{uid}/") or body.old_public_id == user.get("avatar_public_id"):
+            await _destroy(body.old_public_id)
 
     # Persist avatar to the user's DB record
     db = get_database()
-    if db is not None and user:
+    if db is not None:
         await db.users.update_one(
             {"_id": user["_id"]},
             {"$set": {"avatar": avatar_url, "avatar_public_id": cld_public_id}},
@@ -134,16 +135,18 @@ async def upload_avatar(
 @router.delete("", status_code=204)
 async def delete_avatar(
     body: AvatarDeleteIn,
-    user: Optional[dict] = Depends(get_current_user_optional),
+    user: dict = Depends(get_current_user),
 ):
     """Remove a profile avatar from Cloudinary and clear DB references."""
     _cloud_configured()
+    uid = str(user["_id"])
 
-    await _destroy(body.public_id)
+    # Strict ownership check: only destroy assets scoped to this user
+    if body.public_id.startswith(f"avatars/{uid}/") or body.public_id == user.get("avatar_public_id"):
+        await _destroy(body.public_id)
 
     db = get_database()
-    uid = str(user["_id"]) if user else "default"
-    if db is not None and user:
+    if db is not None:
         await db.users.update_one(
             {"_id": user["_id"]},
             {"$unset": {"avatar": "", "avatar_public_id": ""}},

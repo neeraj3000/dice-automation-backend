@@ -3,7 +3,7 @@ from collections import defaultdict, deque
 
 import jwt
 from bson import ObjectId
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, Cookie, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.security import decode_token
@@ -40,6 +40,55 @@ async def get_current_user_optional(creds: HTTPAuthorizationCredentials | None =
         return await db.users.find_one(query)
     except Exception:
         return None
+
+
+async def get_current_user_sse(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    a2h_refresh: str | None = Cookie(default=None),
+    a2h_access: str | None = Cookie(default=None),
+    ticket: str | None = Query(default=None)
+) -> dict:
+    token = creds.credentials if isinstance(creds, HTTPAuthorizationCredentials) else None
+    if not token and isinstance(a2h_access, str):
+        token = a2h_access
+
+    if token:
+        try:
+            payload = decode_token(token, "access")
+            sub = payload.get("sub")
+            query = {"_id": ObjectId(sub)} if ObjectId.is_valid(sub) else {"_id": sub}
+            db = get_database()
+            user = await db.users.find_one(query)
+            if user:
+                return user
+        except Exception:
+            pass
+
+    if isinstance(a2h_refresh, str):
+        try:
+            payload = decode_token(a2h_refresh, "refresh")
+            sub = payload.get("sub")
+            query = {"_id": ObjectId(sub)} if ObjectId.is_valid(sub) else {"_id": sub}
+            db = get_database()
+            user = await db.users.find_one(query)
+            if user:
+                return user
+        except Exception:
+            pass
+
+    if isinstance(ticket, str):
+        try:
+            payload = decode_token(ticket, "access")
+            sub = payload.get("sub")
+            query = {"_id": ObjectId(sub)} if ObjectId.is_valid(sub) else {"_id": sub}
+            db = get_database()
+            user = await db.users.find_one(query)
+            if user:
+                return user
+        except Exception:
+            pass
+
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated for SSE stream")
 
 
 def rate_limit(max_calls: int, per_seconds: int):

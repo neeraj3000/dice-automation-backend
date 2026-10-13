@@ -2,7 +2,7 @@ from typing import List, Optional, Union, Any
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Depends
 from app.schemas.resume import ResumeResponse, ResumeUpdate
 from app.services.resume_service import resume_service
-from app.core.deps import get_current_user_optional
+from app.core.deps import get_current_user
 
 router = APIRouter(prefix="/resumes", tags=["Resumes"])
 
@@ -10,9 +10,9 @@ router = APIRouter(prefix="/resumes", tags=["Resumes"])
 async def upload_resumes(
     files: Optional[List[UploadFile]] = File(None),
     file: Optional[UploadFile] = File(None),
-    user: Optional[dict] = Depends(get_current_user_optional)
+    user: dict = Depends(get_current_user)
 ):
-    user_id = str(user["_id"]) if user else "default"
+    user_id = str(user["_id"])
     items_to_upload = []
     if files:
         items_to_upload.extend(files)
@@ -43,14 +43,14 @@ async def upload_resumes(
 async def list_resumes(
     search: Optional[str] = Query(None, description="Search term across name, role, skills, or content"),
     role: Optional[str] = Query(None, description="Filter by target role"),
-    user: Optional[dict] = Depends(get_current_user_optional)
+    user: dict = Depends(get_current_user)
 ):
-    user_id = user["_id"] if user else None
+    user_id = user["_id"]
     return await resume_service.get_resumes(search=search, role=role, user_id=user_id)
 
 @router.get("/{resume_id}", response_model=ResumeResponse)
-async def get_resume(resume_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = user["_id"] if user else None
+async def get_resume(resume_id: str, user: dict = Depends(get_current_user)):
+    user_id = user["_id"]
     res = await resume_service.get_resume_by_id(resume_id, user_id=user_id)
     if not res:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -58,40 +58,40 @@ async def get_resume(resume_id: str, user: Optional[dict] = Depends(get_current_
 
 @router.put("/{resume_id}", response_model=ResumeResponse)
 @router.patch("/{resume_id}", response_model=ResumeResponse)
-async def update_resume(resume_id: str, update_data: ResumeUpdate, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = user["_id"] if user else None
+async def update_resume(resume_id: str, update_data: ResumeUpdate, user: dict = Depends(get_current_user)):
+    user_id = user["_id"]
     res = await resume_service.update_resume(resume_id, update_data, user_id=user_id)
     if not res:
         raise HTTPException(status_code=404, detail="Resume not found")
     return res
 
 @router.post("/{resume_id}/set-default", response_model=ResumeResponse)
-async def set_default_resume(resume_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = user["_id"] if user else None
+async def set_default_resume(resume_id: str, user: dict = Depends(get_current_user)):
+    user_id = user["_id"]
     res = await resume_service.set_default_resume(resume_id, user_id=user_id)
     if not res:
         raise HTTPException(status_code=404, detail="Resume not found")
     return res
 
 @router.delete("/{resume_id}")
-async def delete_resume(resume_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = user["_id"] if user else None
+async def delete_resume(resume_id: str, user: dict = Depends(get_current_user)):
+    user_id = user["_id"]
     success = await resume_service.delete_resume(resume_id, user_id=user_id)
     if not success:
         raise HTTPException(status_code=404, detail="Resume not found or could not be deleted")
     return {"success": True, "message": "Resume deleted successfully"}
 
 @router.post("/{resume_id}/replace", response_model=ResumeResponse)
-async def replace_resume(resume_id: str, file: UploadFile = File(...), user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = user["_id"] if user else None
+async def replace_resume(resume_id: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    user_id = user["_id"]
     res = await resume_service.replace_resume_file(resume_id, file, user_id=user_id)
     if not res:
         raise HTTPException(status_code=404, detail="Resume not found")
     return res
 
 @router.post("/{resume_id}/reparse", response_model=ResumeResponse)
-async def reparse_resume(resume_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
-    user_id = user["_id"] if user else None
+async def reparse_resume(resume_id: str, user: dict = Depends(get_current_user)):
+    user_id = user["_id"]
     res = await resume_service.reparse_resume(resume_id, user_id=user_id)
     if not res:
         raise HTTPException(status_code=404, detail="Resume not found")
