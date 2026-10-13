@@ -78,6 +78,19 @@ async def connect_db():
     except Exception:
         pass
 
+    # Search profiles & Job matches performance indexes
+    try:
+        search_col = db_instance.db.search_profiles
+        await search_col.create_index([("user_id", 1), ("created_at", -1)])
+    except Exception:
+        pass
+
+    try:
+        matches_col = db_instance.db.job_matches
+        await matches_col.create_index([("job_id", 1)])
+    except Exception:
+        pass
+
 async def close_db():
     if db_instance.client:
         db_instance.client.close()

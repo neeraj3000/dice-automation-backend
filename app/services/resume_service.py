@@ -11,11 +11,15 @@ from app.schemas.resume import ResumeResponse, ResumeUpdate, ResumeBrief
 from app.services.parser_service import extract_text
 from app.services.llm_service import llm_service
 
-def format_resume_doc(doc: Dict[str, Any]) -> ResumeResponse:
+def format_resume_doc(doc: Dict[str, Any], default_resume_id: Optional[str] = None) -> ResumeResponse:
     if not doc:
         return None
     data = sanitize_object_ids(dict(doc))
     data["id"] = str(data.pop("_id", data.get("id", "")))
+    if default_resume_id:
+        data["is_default"] = (str(data["id"]) == str(default_resume_id))
+    elif "is_default" not in data:
+        data["is_default"] = False
     if "user_id" in data and data["user_id"] is not None:
         data["user_id"] = str(data["user_id"])
     if not data.get("display_name"):
@@ -86,6 +90,12 @@ class ResumeService:
         # Cloudinary is the only place the resume file is stored
         cloudinary_info = await self._store_in_cloudinary(content, user_id, target_name)
 
+        db = get_database()
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        u_q = {"_id": {"$in": u_oids + [str(user_id)]}} if user_id else None
+        user_doc = await db.users.find_one(u_q) if u_q else None
+        is_first = bool(user_doc and not user_doc.get("default_resume_id"))
+
         doc = {
             "user_id": user_id,
             "file_name": target_name,
@@ -99,6 +109,7 @@ class ResumeService:
             "experience_years": metadata.experience_years,
             "summary": metadata.summary,
             "raw_text": raw_text,
+            "is_default": is_first,
             "custom_fields": {},
             "created_at": now,
             "updated_at": now
@@ -106,7 +117,13 @@ class ResumeService:
 
         result = await self.collection.insert_one(doc)
         doc["_id"] = result.inserted_id
-        return format_resume_doc(doc)
+        new_id_str = str(result.inserted_id)
+
+        if is_first and u_q:
+            await db.users.update_one(u_q, {"$set": {"default_resume_id": new_id_str, "updated_at": now}})
+
+        def_id = new_id_str if is_first else (user_doc.get("default_resume_id") if user_doc else None)
+        return format_resume_doc(doc, default_resume_id=def_id)
 
     async def get_resumes(self, search: Optional[str] = None, role: Optional[str] = None, user_id: Optional[Any] = None) -> List[ResumeResponse]:
         if not user_id:
@@ -129,21 +146,44 @@ class ResumeService:
         if role:
             query["target_role"] = {"$regex": re.escape(role), "$options": "i"}
 
+        db = get_database()
+        user_doc = await db.users.find_one({"_id": {"$in": u_oids + [str(user_id)]}})
+        def_id = user_doc.get("default_resume_id") if user_doc else None
+
         cursor = self.collection.find(query).sort("created_at", -1)
-        resumes = []
+        resumes_raw = []
         async for doc in cursor:
-            resumes.append(format_resume_doc(doc))
-        return resumes
+            resumes_raw.append(doc)
+
+        # Validate def_id against actual user's resumes
+        valid_def_id = def_id if (def_id and any(str(r["_id"]) == str(def_id) for r in resumes_raw)) else None
+        if not valid_def_id and resumes_raw:
+            legacy_default = next((r for r in resumes_raw if r.get("is_default")), None)
+            chosen = legacy_default or resumes_raw[0]
+            valid_def_id = str(chosen["_id"])
+            try:
+                await db.users.update_one(
+                    {"_id": {"$in": u_oids + [str(user_id)]}},
+                    {"$set": {"default_resume_id": valid_def_id}}
+                )
+            except Exception:
+                pass
+
+        return [format_resume_doc(doc, default_resume_id=valid_def_id) for doc in resumes_raw]
 
     async def get_resume_by_id(self, resume_id: str, user_id: Optional[Any] = None) -> Optional[ResumeResponse]:
         if not ObjectId.is_valid(resume_id):
             return None
         query = {"_id": ObjectId(resume_id)}
+        def_id = None
         if user_id:
             u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
             query["user_id"] = {"$in": u_oids + [str(user_id)]}
+            db = get_database()
+            user_doc = await db.users.find_one({"_id": {"$in": u_oids + [str(user_id)]}})
+            def_id = user_doc.get("default_resume_id") if user_doc else None
         doc = await self.collection.find_one(query)
-        return format_resume_doc(doc) if doc else None
+        return format_resume_doc(doc, default_resume_id=def_id) if doc else None
 
     async def update_resume(self, resume_id: str, update_data: ResumeUpdate, user_id: Optional[Any] = None) -> Optional[ResumeResponse]:
         if not ObjectId.is_valid(resume_id) or not user_id:
@@ -258,7 +298,40 @@ class ResumeService:
             pass
 
         del_res = await self.collection.delete_one(query)
-        return del_res.deleted_count > 0
+        if del_res.deleted_count == 0:
+            return False
+
+        # Clean up authoritative pointer if this was the default resume
+        try:
+            db = get_database()
+            user_query = {"_id": {"$in": u_oids + [str(user_id)]}}
+            user_doc = await db.users.find_one(user_query)
+            is_user_default = (user_doc and str(user_doc.get("default_resume_id")) == str(resume_id)) or (doc.get("is_default") is True)
+            if is_user_default:
+                # Find a fallback resume for this user
+                remaining = await self.collection.find(
+                    {"user_id": {"$in": u_oids + [str(user_id)]}}
+                ).sort("created_at", -1).to_list(1)
+
+                if remaining:
+                    new_def_id = str(remaining[0]["_id"])
+                    await db.users.update_one(
+                        user_query,
+                        {"$set": {"default_resume_id": new_def_id, "updated_at": datetime.now(timezone.utc)}}
+                    )
+                    await self.collection.update_one(
+                        {"_id": remaining[0]["_id"]},
+                        {"$set": {"is_default": True}}
+                    )
+                else:
+                    await db.users.update_one(
+                        user_query,
+                        {"$unset": {"default_resume_id": ""}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+                    )
+        except Exception:
+            pass
+
+        return True
 
     async def reparse_resume(self, resume_id: str, user_id: Optional[Any] = None) -> Optional[ResumeResponse]:
         if not ObjectId.is_valid(resume_id) or not user_id:
@@ -285,7 +358,10 @@ class ResumeService:
             },
             return_document=True
         )
-        return format_resume_doc(updated)
+        db = get_database()
+        user_doc = await db.users.find_one({"_id": {"$in": u_oids + [str(user_id)]}})
+        def_id = user_doc.get("default_resume_id") if user_doc else None
+        return format_resume_doc(updated, default_resume_id=def_id)
 
     async def set_default_resume(self, resume_id: str, user_id: Optional[Any] = None) -> Optional[ResumeResponse]:
         if not ObjectId.is_valid(resume_id) or not user_id:
@@ -295,14 +371,27 @@ class ResumeService:
         target = await self.collection.find_one(target_query)
         if not target:
             return None
-        u_match = target.get("user_id")
-        q = {"user_id": {"$in": u_oids + [str(u_match)]}} if u_match else {}
-        await self.collection.update_many(q, {"$set": {"is_default": False}})
+
+        db = get_database()
+        user_query = {"_id": {"$in": u_oids + [str(user_id)]}}
+        now = datetime.now(timezone.utc)
+
+        # 1. Authoritative atomic update on user document
+        await db.users.update_one(
+            user_query,
+            {"$set": {"default_resume_id": str(resume_id), "updated_at": now}}
+        )
+
+        # 2. Synchronize legacy is_default markers on resumes collection
+        await self.collection.update_many(
+            {"user_id": {"$in": u_oids + [str(user_id)]}, "_id": {"$ne": ObjectId(resume_id)}},
+            {"$set": {"is_default": False}}
+        )
         updated = await self.collection.find_one_and_update(
             target_query,
-            {"$set": {"is_default": True, "updated_at": datetime.now(timezone.utc)}},
+            {"$set": {"is_default": True, "updated_at": now}},
             return_document=True
         )
-        return format_resume_doc(updated)
+        return format_resume_doc(updated, default_resume_id=str(resume_id))
 
 resume_service = ResumeService()

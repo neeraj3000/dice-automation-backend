@@ -1,6 +1,8 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+import os
+import uuid
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from bson import ObjectId
 
@@ -21,6 +23,8 @@ class ApplicationQueueManager:
         self._worker_task: Optional[asyncio.Task] = None
         self._active_application_id: Optional[str] = None
         self._is_running: bool = False
+        self._worker_instance_id: str = f"worker_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+        self.lease_timeout_seconds: int = 180
 
     @property
     def apps_col(self):
@@ -64,31 +68,70 @@ class ApplicationQueueManager:
                 max_retries = item.get("max_retries", 2)
 
                 try:
-                    # Skip items stopped while waiting in the queue
-                    pending = await self.apps_col.find_one(
-                        {
-                            "_id": ObjectId(app_id),
-                            "status": {"$in": [ApplicationState.QUEUED, ApplicationState.STARTING]},
-                            "cancel_requested": {"$ne": True},
-                        },
-                        {"_id": 1},
-                    )
-                    if not pending:
-                        logger.info(f"Skipping application {app_id}: no longer pending (stopped or already handled).")
+                    now = datetime.now(timezone.utc)
+                    cutoff = now - timedelta(seconds=self.lease_timeout_seconds)
+
+                    # Atomically claim the pending application
+                    claim_filter = {
+                        "_id": ObjectId(app_id),
+                        "status": {"$in": [ApplicationState.QUEUED, ApplicationState.STARTING]},
+                        "cancel_requested": {"$ne": True},
+                        "$or": [
+                            {"claimed_by": {"$exists": False}},
+                            {"claimed_by": self._worker_instance_id},
+                            {"heartbeat_at": {"$exists": False}},
+                            {"heartbeat_at": {"$lt": cutoff}}
+                        ]
+                    }
+                    claim_update = {
+                        "$set": {
+                            "status": ApplicationState.STARTING,
+                            "claimed_by": self._worker_instance_id,
+                            "claimed_at": now,
+                            "heartbeat_at": now,
+                            "updated_at": now
+                        }
+                    }
+                    claimed = await self.apps_col.find_one_and_update(claim_filter, claim_update, return_document=True)
+                    if not claimed:
+                        logger.info(f"Skipping application {app_id}: no longer pending or actively claimed by another worker.")
                         continue
 
                     self._active_application_id = app_id
-                    logger.info(f"Processing application from queue: {app_id} (user={user_id})")
+                    logger.info(f"Processing application from queue: {app_id} (claimed by {self._worker_instance_id})")
 
-                    await execution_control.run_cancellable(
-                        app_id,
-                        application_runner.run_application(
-                            application_id=app_id,
-                            user_id=user_id,
-                            mode=mode,
-                            max_retries=max_retries
-                        ),
-                    )
+                    # Start periodic background heartbeat task for long running operations
+                    async def _heartbeat_worker():
+                        while self._active_application_id == app_id:
+                            try:
+                                await asyncio.sleep(20)
+                                if self._active_application_id == app_id:
+                                    await self.apps_col.update_one(
+                                        {"_id": ObjectId(app_id), "claimed_by": self._worker_instance_id},
+                                        {"$set": {"heartbeat_at": datetime.now(timezone.utc)}}
+                                    )
+                            except asyncio.CancelledError:
+                                break
+                            except Exception:
+                                pass
+
+                    hb_task = asyncio.create_task(_heartbeat_worker())
+                    try:
+                        await execution_control.run_cancellable(
+                            app_id,
+                            application_runner.run_application(
+                                application_id=app_id,
+                                user_id=user_id,
+                                mode=mode,
+                                max_retries=max_retries
+                            ),
+                        )
+                    finally:
+                        hb_task.cancel()
+                        try:
+                            await hb_task
+                        except asyncio.CancelledError:
+                            pass
                 except Exception as ex:
                     logger.error(f"Error running application {app_id} in queue: {ex}", exc_info=True)
                 finally:
@@ -405,11 +448,121 @@ class ApplicationQueueManager:
         }
 
     async def recover_pending_on_startup(self):
-        """Scans MongoDB for interrupted jobs in QUEUED or STARTING state and re-enqueues them."""
+        """
+        Scans MongoDB for interrupted jobs in QUEUED, STARTING, in-flight pre-submission,
+        or SUBMITTING states, distinguishing active work from abandoned crashes via heartbeats.
+        """
         try:
-            cursor = self.apps_col.find({"status": {"$in": [ApplicationState.QUEUED, ApplicationState.STARTING]}})
-            recovered_count = 0
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(seconds=self.lease_timeout_seconds)
+
+            # 1. Recover abandoned pre-submission in-flight states:
+            # [STARTING, OPENING_JOB, FILLING_APPLICATION, UPLOADING_RESUME]
+            pre_submission_states = [
+                ApplicationState.STARTING,
+                ApplicationState.OPENING_JOB,
+                ApplicationState.FILLING_APPLICATION,
+                ApplicationState.UPLOADING_RESUME,
+            ]
+            stale_pre_submission_query = {
+                "status": {"$in": pre_submission_states},
+                "$or": [
+                    {"heartbeat_at": {"$lt": cutoff}},
+                    {"heartbeat_at": {"$exists": False}},
+                    {"heartbeat_at": None}
+                ]
+            }
+
+            cursor = self.apps_col.find(stale_pre_submission_query)
+            abandoned_pre_count = 0
             async for doc in cursor:
+                app_oid = doc["_id"]
+                current_st = doc.get("status")
+                recovery_reason = f"Worker crash detected during {current_st} (heartbeat lost). Mark as retryable failure."
+                recovered = await self.apps_col.find_one_and_update(
+                    {
+                        "_id": app_oid,
+                        "status": current_st,
+                        "$or": [
+                            {"heartbeat_at": {"$lt": cutoff}},
+                            {"heartbeat_at": {"$exists": False}},
+                            {"heartbeat_at": None}
+                        ]
+                    },
+                    {
+                        "$set": {
+                            "status": ApplicationState.FAILED,
+                            "failure_reason": recovery_reason,
+                            "is_retryable": True,
+                            "recovered_at": now,
+                            "recovered_by": self._worker_instance_id,
+                            "updated_at": now,
+                        },
+                        "$push": {
+                            "progress_steps": f"Recovery monitor recovered stale in-flight application ({current_st}) at {now.strftime('%H:%M:%S')} UTC"
+                        }
+                    }
+                )
+                if recovered:
+                    abandoned_pre_count += 1
+                    if recovered.get("job_id"):
+                        await self.jobs_col.update_one(
+                            {"_id": recovered["job_id"], "status": {"$nin": ["APPLIED"]}},
+                            {"$set": {"status": "FAILED", "failure_reason": recovery_reason, "updated_at": now}}
+                        )
+
+            # 2. Recover interrupted SUBMITTING operations:
+            # Treated as ambiguous outcome requiring manual verification to prevent duplicate submission
+            stale_submitting_query = {
+                "status": ApplicationState.SUBMITTING,
+                "$or": [
+                    {"heartbeat_at": {"$lt": cutoff}},
+                    {"heartbeat_at": {"$exists": False}},
+                    {"heartbeat_at": None}
+                ]
+            }
+            submitting_cursor = self.apps_col.find(stale_submitting_query)
+            abandoned_submitting_count = 0
+            async for doc in submitting_cursor:
+                app_oid = doc["_id"]
+                submitting_reason = "Application interrupted during SUBMITTING. Outcome ambiguous — manual verification required to avoid duplicate submission."
+                recovered = await self.apps_col.find_one_and_update(
+                    {
+                        "_id": app_oid,
+                        "status": ApplicationState.SUBMITTING,
+                        "$or": [
+                            {"heartbeat_at": {"$lt": cutoff}},
+                            {"heartbeat_at": {"$exists": False}},
+                            {"heartbeat_at": None}
+                        ]
+                    },
+                    {
+                        "$set": {
+                            "status": ApplicationState.FAILED,
+                            "failure_reason": submitting_reason,
+                            "is_retryable": False,
+                            "ambiguous_submission": True,
+                            "recovered_at": now,
+                            "recovered_by": self._worker_instance_id,
+                            "updated_at": now,
+                        },
+                        "$push": {
+                            "progress_steps": f"Recovery monitor intercepted ambiguous SUBMITTING state at {now.strftime('%H:%M:%S')} UTC (requires verification)"
+                        }
+                    }
+                )
+                if recovered:
+                    abandoned_submitting_count += 1
+                    if recovered.get("job_id"):
+                        await self.jobs_col.update_one(
+                            {"_id": recovered["job_id"], "status": {"$nin": ["APPLIED"]}},
+                            {"$set": {"status": "FAILED", "failure_reason": submitting_reason, "updated_at": now}}
+                        )
+
+            # 3. Recover QUEUED items that are waiting to be processed
+            queued_cursor = self.apps_col.find({"status": ApplicationState.QUEUED})
+            recovered_queued_count = 0
+            async for doc in queued_cursor:
                 app_id = str(doc["_id"])
                 user_id = doc.get("user_id", "default")
                 mode = doc.get("mode", "APPLY")
@@ -420,12 +573,26 @@ class ApplicationQueueManager:
                     "mode": mode,
                     "max_retries": max_retries
                 })
-                recovered_count += 1
-            if recovered_count > 0:
-                logger.info(f"ApplicationQueueManager recovered {recovered_count} pending applications on startup.")
+                recovered_queued_count += 1
+
+            if any([abandoned_pre_count, abandoned_submitting_count, recovered_queued_count]):
+                logger.info(
+                    f"ApplicationQueueManager recovery completed: "
+                    f"{abandoned_pre_count} pre-submission abandoned, "
+                    f"{abandoned_submitting_count} ambiguous submitting, "
+                    f"{recovered_queued_count} queued."
+                )
+            if recovered_queued_count > 0:
                 self.start_worker()
+
+            return {
+                "recovered_pre_submission": abandoned_pre_count,
+                "recovered_ambiguous_submitting": abandoned_submitting_count,
+                "recovered_queued": recovered_queued_count,
+            }
         except Exception as e:
             logger.warning(f"Notice during queue startup recovery: {e}")
+            return {"error": str(e)}
 
 
 application_queue_manager = ApplicationQueueManager()

@@ -132,9 +132,10 @@ class ApplicationRunner:
     async def _update_application_status_only(self, app_id: str, status: str):
         try:
             if ObjectId.is_valid(app_id):
+                now = datetime.now(timezone.utc)
                 await self.apps_col.update_one(
                     {"_id": ObjectId(app_id), **NOT_CANCELLED},
-                    {"$set": {"status": status, "updated_at": datetime.now(timezone.utc)}}
+                    {"$set": {"status": status, "heartbeat_at": now, "updated_at": now}}
                 )
         except Exception as e:
             logger.debug(f"Failed to update status for {app_id}: {e}")
@@ -157,6 +158,7 @@ class ApplicationRunner:
             "failure_reason": failure_reason or "",
             "retry_count": retry_count,
             "max_retries": max_retries,
+            "heartbeat_at": now,
             "updated_at": now
         }
         if applied_at:
