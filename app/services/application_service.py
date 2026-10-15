@@ -1,5 +1,7 @@
+import asyncio
+import logging
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Awaitable, Callable
 from bson import ObjectId
 from fastapi import HTTPException
 
@@ -13,6 +15,11 @@ from app.services.cloudinary_service import resume_file_for
 from app.services.jd_service import jd_service
 from app.browser.application_browser import application_browser
 from app.services.execution_control import execution_control, NOT_CANCELLED
+
+logger = logging.getLogger(__name__)
+
+HEARTBEAT_INTERVAL = 20
+FAILURE_STATES = ("FAILED", "EXTERNAL_PORTAL", "CAPTCHA_REQUIRED", "LOGIN_REQUIRED", "SESSION_EXPIRED", "TIMEOUT")
 
 def format_app_doc(doc: Dict[str, Any], questions: List[Dict[str, Any]] = None) -> ApplicationResponse:
     data = sanitize_object_ids(dict(doc))
@@ -85,6 +92,8 @@ def format_app_doc(doc: Dict[str, Any], questions: List[Dict[str, Any]] = None) 
     return ApplicationResponse(**data)
 
 class ApplicationService:
+    _bg_tasks: set = set()
+
     @property
     def apps_col(self):
         return get_database().applications
@@ -151,6 +160,8 @@ class ApplicationService:
         now = datetime.now(timezone.utc)
         # Create or update Application doc
         existing_app = await self.apps_col.find_one({"job_id": ObjectId(req.job_id)})
+        if existing_app and execution_control.is_running_locally(str(existing_app["_id"])):
+            raise HTTPException(status_code=409, detail="An application for this job is already in progress.")
         target_uid = str(getattr(req, "user_id", None) or "default")
         app_data = {
             "job_id": ObjectId(req.job_id),
@@ -175,6 +186,8 @@ class ApplicationService:
             app_data["created_at"] = now
             res = await self.apps_col.insert_one(app_data)
             app_id = res.inserted_id
+        # Questions from an earlier attempt no longer apply to this run
+        await self.answers_col.delete_many({"application_id": app_id, "is_answered": False})
 
         # Pre-check: Validate that candidate has active session tokens before launching browser
         from app.services.session_store import get_session_store
@@ -208,80 +221,97 @@ class ApplicationService:
             saved_app = await self.apps_col.find_one({"_id": app_id})
             return format_app_doc(saved_app, [])
 
-        # Run Browser automation
+        # Run browser automation in the background: a full Dice run takes minutes, longer than
+        # proxies keep a request open. The client follows progress by polling the application.
         user_profile = await settings_service.get_profile(user_id=target_uid)
-        async with resume_file_for(resume) as resume_path:
-            cancelled, browser_res = await execution_control.run_cancellable(
-                str(app_id),
-                application_browser.prepare_application(
-                    application_url=app_data["application_url"],
-                    resume_file_path=str(resume_path),
-                    user_profile=user_profile,
-                    mode=app_data["mode"],
-                    user_id=target_uid
-                ),
-            )
-        if cancelled:
-            return format_app_doc(await self.apps_col.find_one({"_id": app_id}), [])
+        self._start_run(
+            app_id, job["_id"], resume, app_data["progress_steps"],
+            lambda resume_path: application_browser.prepare_application(
+                application_url=app_data["application_url"],
+                resume_file_path=resume_path,
+                user_profile=user_profile,
+                mode=app_data["mode"],
+                user_id=target_uid
+            ),
+        )
+        saved_app = await self.apps_col.find_one({"_id": app_id})
+        return format_app_doc(saved_app, [])
 
-        final_steps = app_data["progress_steps"] + browser_res["progress_steps"]
+    def _start_run(self, app_id: ObjectId, job_id: Any, resume: Dict[str, Any], base_steps: List[str], make_run: Callable[[str], Awaitable[Dict[str, Any]]]):
+        task = asyncio.create_task(self._run_in_background(app_id, job_id, resume, base_steps, make_run))
+        # Keep a reference so the task isn't garbage-collected mid-run
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
+    async def _heartbeat(self, app_id: ObjectId):
+        # Lets startup recovery tell a live run from one abandoned by a crashed worker
+        while True:
+            try:
+                await self.apps_col.update_one({"_id": app_id, **NOT_CANCELLED}, {"$set": {"heartbeat_at": datetime.now(timezone.utc)}})
+            except Exception as e:
+                logger.debug(f"Heartbeat failed for {app_id}: {e}")
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+    async def _run_in_background(self, app_id: ObjectId, job_id: Any, resume: Dict[str, Any], base_steps: List[str], make_run: Callable[[str], Awaitable[Dict[str, Any]]]):
+        hb = asyncio.create_task(self._heartbeat(app_id))
+        try:
+            async with resume_file_for(resume) as resume_path:
+                cancelled, browser_res = await execution_control.run_cancellable(str(app_id), make_run(str(resume_path)))
+            if not cancelled:
+                await self._finish_run(app_id, job_id, base_steps, browser_res)
+        except Exception as e:
+            logger.error(f"Application {app_id} run failed: {e}", exc_info=True)
+            await self._finish_run(app_id, job_id, base_steps, {
+                "status": "FAILED",
+                "progress_steps": [f"Automation stopped: {e}"],
+                "failure_reason": str(e) or "Application automation failed.",
+            })
+        finally:
+            hb.cancel()
+
+    async def _finish_run(self, app_id: ObjectId, job_id: Any, base_steps: List[str], browser_res: Dict[str, Any]):
+        """Persists a run's outcome on the application, its job, and the review queue."""
+        now = datetime.now(timezone.utc)
+        status = browser_res.get("status") or "FAILED"
+        failure_reason = browser_res.get("failure_reason") or ""
+        applied = status in ("APPLIED", "SUBMITTED")
         update_fields = {
-            "status": browser_res["status"],
-            "progress_steps": final_steps,
-            "failure_reason": browser_res.get("failure_reason") or "",
-            "updated_at": datetime.now(timezone.utc)
+            "status": status,
+            "progress_steps": base_steps + browser_res.get("progress_steps", []),
+            "failure_reason": failure_reason,
+            "updated_at": now
         }
-        if browser_res["status"] in ["APPLIED", "SUBMITTED"]:
-            update_fields["applied_at"] = datetime.now(timezone.utc)
+        if applied:
+            update_fields["applied_at"] = now
 
         # Persist the outcome unless the user stopped the run in the meantime
         res = await self.apps_col.update_one({"_id": app_id, **NOT_CANCELLED}, {"$set": update_fields})
         if res.matched_count == 0:
-            return format_app_doc(await self.apps_col.find_one({"_id": app_id}), [])
+            return
 
-        if browser_res["status"] in ["APPLIED", "SUBMITTED"]:
-            now_ts = update_fields["applied_at"]
-            await self.jobs_col.update_one(
-                {"_id": job["_id"]},
-                {"$set": {"status": "APPLIED", "applied_at": now_ts, "failure_reason": None}}
-            )
-        elif browser_res["status"] in ["FAILED", "EXTERNAL_PORTAL", "CAPTCHA_REQUIRED", "LOGIN_REQUIRED", "SESSION_EXPIRED", "TIMEOUT"]:
-            await self.jobs_col.update_one(
-                {"_id": job["_id"]},
-                {"$set": {
-                    "status": "FAILED",
-                    "failure_reason": browser_res.get("failure_reason") or f"Application halted: {browser_res['status']}",
-                    "updated_at": datetime.now(timezone.utc)
-                }}
-            )
-        elif browser_res["status"] == "REVIEW":
-            await self.jobs_col.update_one(
-                {"_id": job["_id"]},
-                {"$set": {
-                    "status": "REVIEW",
-                    "updated_at": datetime.now(timezone.utc)
-                }}
-            )
+        if applied:
+            job_update = {"status": "APPLIED", "applied_at": now, "failure_reason": None}
+            # Nothing left to answer once Dice has the application
+            await self.answers_col.delete_many({"application_id": app_id, "is_answered": False})
+        elif status in FAILURE_STATES:
+            job_update = {"status": "FAILED", "failure_reason": failure_reason or f"Application halted: {status}"}
+        elif status == "REVIEW":
+            job_update = {"status": "REVIEW"}
+        else:
+            job_update = None
+        if job_update and job_id and ObjectId.is_valid(str(job_id)):
+            await self.jobs_col.update_one({"_id": ObjectId(str(job_id))}, {"$set": {**job_update, "updated_at": now}})
 
-        # Store any questions into application_answers collection
-        pending_qs = []
-        if browser_res.get("unanswered_questions"):
-            for q in browser_res["unanswered_questions"]:
-                q_doc = {
-                    "application_id": app_id,
-                    "question_text": q["question_text"],
-                    "field_name": q.get("field_name", ""),
-                    "options": q.get("options", []),
-                    "answer_text": "",
-                    "is_answered": False,
-                    "created_at": datetime.now(timezone.utc)
-                }
-                insert_q = await self.answers_col.insert_one(q_doc)
-                q_doc["_id"] = insert_q.inserted_id
-                pending_qs.append(q_doc)
-
-        saved_app = await self.apps_col.find_one({"_id": app_id})
-        return format_app_doc(saved_app, pending_qs)
+        for q in browser_res.get("unanswered_questions") or []:
+            await self.answers_col.insert_one({
+                "application_id": app_id,
+                "question_text": q["question_text"],
+                "field_name": q.get("field_name", ""),
+                "options": q.get("options", []),
+                "answer_text": "",
+                "is_answered": False,
+                "created_at": now
+            })
 
     async def get_applications(self, user_id: Optional[Any] = None) -> List[ApplicationResponse]:
         if not user_id:
@@ -322,6 +352,8 @@ class ApplicationService:
         if not app_doc:
             raise HTTPException(status_code=404, detail="Application not found")
 
+        if execution_control.is_running_locally(app_id):
+            raise HTTPException(status_code=409, detail="This application is already in progress.")
         # Submission protection: allow submitting if READY, REVIEW, PREPARE, FAILED, or re-submitting APPLIED
         if app_doc["status"] not in ["READY", "REVIEW", "PREPARE", "FAILED", "APPLIED", "APPLYING", "CANCELLED"]:
             raise HTTPException(status_code=400, detail=f"Cannot submit application in '{app_doc['status']}' status")
@@ -372,84 +404,31 @@ class ApplicationService:
         # Update to APPLYING while in-flight
         await self.apps_col.update_one(
             {"_id": ObjectId(app_id)},
-            {"$set": {"status": "APPLYING", "progress_steps": steps, "cancel_requested": False, "updated_at": now}}
+            {"$set": {"status": "APPLYING", "progress_steps": steps, "failure_reason": "", "cancel_requested": False, "heartbeat_at": now, "updated_at": now}}
         )
+        await self.answers_col.delete_many({"application_id": ObjectId(app_id), "is_answered": False})
 
-        # Run real browser submission
-        async with resume_file_for(resume) as resume_path:
-            cancelled, browser_res = await execution_control.run_cancellable(
-                app_id,
-                application_browser.submit_application_to_dice(
-                    application_url=app_doc["application_url"],
-                    resume_file_path=str(resume_path),
-                    user_profile=user_profile,
-                    user_id=target_uid
-                ),
-            )
-        if cancelled:
-            return format_app_doc(await self.apps_col.find_one({"_id": ObjectId(app_id)}), [])
-
-        final_steps = steps + browser_res.get("progress_steps", [])
-        final_status = browser_res["status"]
-        failure_reason = browser_res.get("failure_reason") or ""
-
-        update_fields = {
-            "status": final_status,
-            "progress_steps": final_steps,
-            "failure_reason": failure_reason,
-            "updated_at": datetime.now(timezone.utc)
-        }
-
-        if final_status in ("APPLIED", "SUBMITTED"):
-            update_fields["applied_at"] = datetime.now(timezone.utc)
-            # Update job status as well
-            if ObjectId.is_valid(app_doc.get("job_id")):
-                await self.jobs_col.update_one(
-                    {"_id": ObjectId(app_doc["job_id"])},
-                    {"$set": {"status": "APPLIED", "applied_at": datetime.now(timezone.utc), "failure_reason": None, "updated_at": datetime.now(timezone.utc)}}
-                )
-        elif final_status == "FAILED" and ObjectId.is_valid(app_doc.get("job_id")):
-            await self.jobs_col.update_one(
-                {"_id": ObjectId(app_doc["job_id"])},
-                {"$set": {"status": "FAILED", "failure_reason": failure_reason, "updated_at": datetime.now(timezone.utc)}}
-            )
-        elif final_status == "REVIEW" and ObjectId.is_valid(app_doc.get("job_id")):
-            await self.jobs_col.update_one(
-                {"_id": ObjectId(app_doc["job_id"])},
-                {"$set": {"status": "REVIEW", "updated_at": datetime.now(timezone.utc)}}
-            )
-
-        # Record any newly discovered questions if stopped in REVIEW
-        pending_qs = []
-        if browser_res.get("unanswered_questions"):
-            for q in browser_res["unanswered_questions"]:
-                q_doc = {
-                    "application_id": ObjectId(app_id),
-                    "question_text": q["question_text"],
-                    "field_name": q.get("field_name", ""),
-                    "options": q.get("options", []),
-                    "answer_text": "",
-                    "is_answered": False,
-                    "created_at": datetime.now(timezone.utc)
-                }
-                insert_q = await self.answers_col.insert_one(q_doc)
-                q_doc["_id"] = insert_q.inserted_id
-                pending_qs.append(q_doc)
-
-        updated = await self.apps_col.find_one_and_update(
-            {"_id": ObjectId(app_id), **NOT_CANCELLED},
-            {"$set": update_fields},
-            return_document=True
+        # Run real browser submission in the background (see prepare_application)
+        self._start_run(
+            ObjectId(app_id), app_doc.get("job_id"), resume, steps,
+            lambda resume_path: application_browser.submit_application_to_dice(
+                application_url=app_doc["application_url"],
+                resume_file_path=resume_path,
+                user_profile=user_profile,
+                user_id=target_uid
+            ),
         )
-        if not updated:
-            return format_app_doc(await self.apps_col.find_one({"_id": ObjectId(app_id)}), [])
-        return format_app_doc(updated, pending_qs)
+        return format_app_doc(await self.apps_col.find_one({"_id": ObjectId(app_id)}), [])
 
     async def get_review_queue(self, user_id: Optional[Any] = None) -> List[ReviewItem]:
         if not user_id:
             return []
         u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-        user_app_ids = await self.apps_col.distinct("_id", {"user_id": {"$in": u_oids + [str(user_id)]}})
+        # Questions only matter while their application is still waiting on the user
+        user_app_ids = await self.apps_col.distinct("_id", {
+            "user_id": {"$in": u_oids + [str(user_id)]},
+            "status": {"$nin": ["SUBMITTED", "APPLIED", "CANCELLED", "APPLYING"]},
+        })
         if not user_app_ids:
             return []
         cursor = self.answers_col.find({"application_id": {"$in": user_app_ids}, "is_answered": False}).sort("created_at", -1)

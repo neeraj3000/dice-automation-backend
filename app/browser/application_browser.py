@@ -27,6 +27,14 @@ EXTERNAL_PORTAL_DOMAINS = (
     "applytojob.com",
 )
 
+# Final wizard button; tolerant of whitespace/icons around the label
+SUBMIT_LABEL = re.compile(r"^\s*(Submit|Submit Application|Send Application)\s*$", re.I)
+
+UNCONFIRMED_REASON = (
+    "Dice did not confirm this application. Check the job on Dice; "
+    "if it isn't marked Applied, try again."
+)
+
 
 async def _notify_status(callback: Optional[Any], state: str):
     if callback:
@@ -144,6 +152,28 @@ class ApplicationBrowser:
             return await applied.count() > 0 and await applied.is_visible()
         except Exception as e:
             logger.debug(f"Applied-state check notice: {e}")
+        return False
+
+    @staticmethod
+    def _job_detail_url(url: str) -> Optional[str]:
+        """
+        The Dice job detail page shows the authoritative "Applied" state. Jobs may be stored
+        with either the detail URL or the wizard URL (/job-applications/<id>/wizard).
+        """
+        if "/job-detail/" in (url or "").lower():
+            return url
+        m = re.search(r"https?://[^/]*dice\.com/job-applications/([A-Za-z0-9\-]+)", url or "", re.I)
+        return f"https://www.dice.com/job-detail/{m.group(1)}" if m else None
+
+    async def _verify_applied_with_retries(self, page, job_url: Optional[str], attempts: int = 3) -> bool:
+        """Dice can take a few seconds to reflect a new application, so check more than once."""
+        if not job_url:
+            return False
+        for attempt in range(attempts):
+            if attempt:
+                await page.wait_for_timeout(5000)
+            if await self._verify_applied_on_job_page(page, job_url):
+                return True
         return False
 
     async def _verify_applied_on_job_page(self, page, job_url: str) -> bool:
@@ -479,7 +509,7 @@ class ApplicationBrowser:
                 await page.wait_for_timeout(1500)
 
                 # A. Check for Final Review & Submit Button FIRST
-                submit_btn = page.locator('button').filter(has_text=re.compile(r"^Submit$|^Submit Application$", re.I)).first
+                submit_btn = page.locator('button').filter(has_text=SUBMIT_LABEL).first
 
                 if await submit_btn.count() and await submit_btn.is_visible():
                     progress_steps.append("Reached final review step on Dice")
@@ -502,8 +532,16 @@ class ApplicationBrowser:
                         # Page-level confirmation (text/URL heuristics) is only a hint; it has
                         # produced false positives, so the job page is the source of truth.
                         page_confirmed = await self._verify_submission_confirmation(page)
-                        if not page_confirmed:
-                            # Check if submission was blocked by validation errors
+
+                        # Only look for validation errors while the form is still on screen: once
+                        # Submit has gone through, generic page text ("required", error widgets)
+                        # would be misread as unanswered questions.
+                        still_on_form = False
+                        try:
+                            still_on_form = await submit_btn.count() > 0 and await submit_btn.is_visible()
+                        except Exception:
+                            pass
+                        if not page_confirmed and still_on_form:
                             blocking_errors = await self._scan_validation_errors(page)
                             if blocking_errors:
                                 unanswered_questions.extend(blocking_errors)
@@ -517,16 +555,9 @@ class ApplicationBrowser:
                                 }
 
                         # The reliable signal: the job detail page now shows the disabled "Applied" button.
-                        # Dice can take a moment to reflect it, so check twice.
-                        is_job_page = "/job-detail/" in target_url.lower()
-                        verified = False
-                        if is_job_page:
-                            for attempt in range(2):
-                                if attempt:
-                                    await page.wait_for_timeout(5000)
-                                if await self._verify_applied_on_job_page(page, target_url):
-                                    verified = True
-                                    break
+                        job_page_url = self._job_detail_url(target_url)
+                        if job_page_url:
+                            verified = await self._verify_applied_with_retries(page, job_page_url)
                         else:
                             verified = page_confirmed
 
@@ -541,14 +572,15 @@ class ApplicationBrowser:
                                 "failure_reason": None
                             }
 
-                        # Neither verified nor blocked: don't claim success
+                        # Neither verified nor blocked: don't claim success. FAILED (not REVIEW,
+                        # which implies questions to answer); a retry detects an existing application.
                         progress_steps.append("Submit button was clicked, but Dice does not show the job as Applied yet")
                         return {
                             "success": False,
-                            "status": "REVIEW",
+                            "status": "FAILED",
                             "progress_steps": progress_steps,
                             "unanswered_questions": [],
-                            "failure_reason": "Submit was clicked but Dice does not show this job as Applied. Please check your Dice account, then retry."
+                            "failure_reason": UNCONFIRMED_REASON
                         }
 
                 # B. Fill Personal Info
@@ -596,9 +628,9 @@ class ApplicationBrowser:
                     break
 
             # In APPLY mode the wizard may have submitted via a differently-labelled final button;
-            # check Dice before asking the user to submit again.
-            if mode != "PREPARE" and "/job-detail/" in target_url.lower():
-                if await self._verify_applied_on_job_page(page, target_url):
+            # check Dice before reporting anything else.
+            if mode != "PREPARE":
+                if await self._verify_applied_with_retries(page, self._job_detail_url(target_url)):
                     progress_steps.append("Verified on Dice: job now shows as Applied")
                     await _notify_status(status_callback, "SUBMITTED")
                     return {
@@ -608,6 +640,15 @@ class ApplicationBrowser:
                         "unanswered_questions": [],
                         "failure_reason": None
                     }
+                # The user asked to apply, so "Ready to submit" would be misleading here
+                progress_steps.append("Could not find the final Submit step, and Dice does not show the job as Applied")
+                return {
+                    "success": False,
+                    "status": "FAILED",
+                    "progress_steps": progress_steps,
+                    "unanswered_questions": [],
+                    "failure_reason": UNCONFIRMED_REASON
+                }
 
             # If loop finished without errors
             progress_steps.append("Application form prepared and ready for review")
@@ -892,7 +933,9 @@ class ApplicationBrowser:
                 except Exception:
                     pass
 
-            error_msgs = await page.locator('[class*="error-message"], [data-testid*="error"], span:has-text("This field is required"), p:has-text("required")').all()
+            # Kept narrow: broad matches (any "required" paragraph, any *error* test id) flagged
+            # hints like "* indicates a required field" as unanswered questions.
+            error_msgs = await page.locator('[class*="error-message"], [data-testid*="error-message"], [role="alert"]:has-text("required"), span:has-text("This field is required")').all()
             for em in error_msgs:
                 try:
                     if await em.is_visible():

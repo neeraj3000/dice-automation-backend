@@ -4,7 +4,8 @@
 
 const APP_CONFIG = {
   // Active environment: 'local' | 'production'
-  ENV: "local",
+  // ENV: "local",
+  ENV: "production",
 
   environments: {
     local: {
