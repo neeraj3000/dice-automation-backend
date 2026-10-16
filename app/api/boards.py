@@ -124,19 +124,6 @@ async def board_status(key: str, user: Optional[dict] = Depends(get_current_user
 @router.post("/{key}/connect", status_code=202)
 async def connect_board(key: str, user: dict = Depends(get_current_user)):
     b = get_board(key)
-    if key == "linkedin":
-        return {
-            "status": "USER_TRACKING_ACTIVE",
-            "key": "linkedin",
-            "name": "LinkedIn",
-            "login_url": "https://www.linkedin.com/login",
-            "message": "LinkedIn uses safe user-confirmed status tracking without scraping or credential extraction.",
-            "instructions": [
-                "1. Open LinkedIn in your browser and sign in normally.",
-                "2. Browse jobs and submit your application directly on LinkedIn.",
-                "3. Record your confirmed application outcome in Apply2Hire to track progress safely."
-            ]
-        }
     return {
         "status": "WAITING_FOR_SYNC",
         "key": b.key,
@@ -154,17 +141,6 @@ async def connect_board(key: str, user: dict = Depends(get_current_user)):
 @router.post("/{key}/verify")
 async def verify_board(key: str, user: dict = Depends(get_current_user)):
     get_board(key)
-    if key == "linkedin":
-        return {
-            "key": "linkedin",
-            "status": "TRACKING_ACTIVE",
-            "connected": True,
-            "username": user.get("name") or user.get("email") or "",
-            "email": user.get("email") or "",
-            "last_verified_at": None,
-            "cookies_count": 0,
-            "workflow": "user_confirmed"
-        }
     dice_info = await _resolve_dice_session(user)
     is_conn = dice_info["is_connected"] if key == "dice" else False
     return {
@@ -185,11 +161,6 @@ async def import_board_cookies(
     user: dict = Depends(get_current_user)
 ):
     get_board(key)
-    if key == "linkedin":
-        raise HTTPException(
-            status_code=400,
-            detail="Cookie extraction or import is prohibited for LinkedIn. Apply2Hire uses safe, user-confirmed application status tracking."
-        )
     user_id = str(user["_id"])
     from app.services.settings_service import settings_service
     res = await settings_service.import_dice_session(cookies=cookies, user_id=user_id)

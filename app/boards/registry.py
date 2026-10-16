@@ -2,10 +2,9 @@ from fastapi import HTTPException
 
 from app.boards.base import JobBoard
 from app.boards.dice.board import DiceBoard
-from app.boards.linkedin.board import LinkedInBoard
 
-# Register new boards here: BOARDS = {b.key: b for b in (DiceBoard(), LinkedInBoard(), ...)}
-BOARDS: dict[str, JobBoard] = {b.key: b for b in (DiceBoard(), LinkedInBoard())}
+# Register new boards here: BOARDS = {b.key: b for b in (DiceBoard(), IndeedBoard(), ...)}
+BOARDS: dict[str, JobBoard] = {b.key: b for b in (DiceBoard(),)}
 
 
 def get_board(key: str) -> JobBoard:

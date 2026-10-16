@@ -60,15 +60,7 @@ class ApplicationBase(BaseModel):
     job_url: Optional[str] = ""
     user_id: Optional[str] = "default"
     board: Optional[str] = "dice"
-    source: Optional[str] = "dice" # dice | linkedin | external
-    status: str = "READY" # QUEUED, STARTING, OPENING_JOB, FILLING_APPLICATION, UPLOADING_RESUME, SUBMITTING, SUBMITTED, FAILED, APPLIED, etc.
-    status_provenance: Optional[str] = "unknown" # user_confirmed | officially_verified | unknown
-    external_job_id: Optional[str] = ""
-    external_job_url: Optional[str] = ""
-    notes: Optional[str] = ""
-    location: Optional[str] = ""
-    confirmed_at: Optional[datetime] = None
-    status_history: List[Dict[str, Any]] = []
+    status: str = "READY" # QUEUED, STARTING, OPENING_JOB, FILLING_APPLICATION, UPLOADING_RESUME, SUBMITTING, SUBMITTED, FAILED, etc.
     mode: str = "PREPARE" # ANALYZE, PREPARE, APPLY
     progress_steps: List[str] = []
     failure_reason: Optional[str] = ""
@@ -151,12 +143,4 @@ class ApplicationStatusResponse(BaseModel):
     applied_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
-from app.schemas.linkedin import (
-    StatusProvenance,
-    ExternalApplicationTrackRequest,
-    ExternalApplicationUpdateRequest,
-    StatusHistoryEntry,
-    PERMITTED_EXTERNAL_STATUSES,
-)
 
