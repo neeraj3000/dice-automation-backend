@@ -82,6 +82,14 @@ def format_app_doc(doc: Dict[str, Any], questions: List[Dict[str, Any]] = None) 
     if not data.get("external_url"):
         data["external_url"] = None
 
+    # Harmonize board, source and provenance
+    if not data.get("source"):
+        data["source"] = data.get("board") or "dice"
+    if not data.get("board"):
+        data["board"] = data.get("source") or "dice"
+    if not data.get("status_provenance"):
+        data["status_provenance"] = "user_confirmed" if data.get("source") == "linkedin" else "unknown"
+
     return ApplicationResponse(**data)
 
 class ApplicationService:
@@ -283,11 +291,13 @@ class ApplicationService:
         saved_app = await self.apps_col.find_one({"_id": app_id})
         return format_app_doc(saved_app, pending_qs)
 
-    async def get_applications(self, user_id: Optional[Any] = None) -> List[ApplicationResponse]:
+    async def get_applications(self, user_id: Optional[Any] = None, board: Optional[str] = None) -> List[ApplicationResponse]:
         if not user_id:
             return []
         u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-        query = {"user_id": {"$in": u_oids + [str(user_id)]}}
+        query: Dict[str, Any] = {"user_id": {"$in": u_oids + [str(user_id)]}}
+        if board and board.lower() != "all":
+            query["$or"] = [{"board": board.lower()}, {"source": board.lower()}]
         cursor = self.apps_col.find(query).sort("created_at", -1)
         apps = []
         async for doc in cursor:
