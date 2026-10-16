@@ -457,8 +457,10 @@ class ApplicationQueueManager:
             cutoff = now - timedelta(seconds=self.lease_timeout_seconds)
 
             # 1. Recover abandoned pre-submission in-flight states:
-            # [STARTING, OPENING_JOB, FILLING_APPLICATION, UPLOADING_RESUME]
+            # [APPLYING, STARTING, OPENING_JOB, FILLING_APPLICATION, UPLOADING_RESUME]
+            # APPLYING is a direct (non-queued) run; a retry detects an existing Dice application.
             pre_submission_states = [
+                ApplicationState.APPLYING,
                 ApplicationState.STARTING,
                 ApplicationState.OPENING_JOB,
                 ApplicationState.FILLING_APPLICATION,

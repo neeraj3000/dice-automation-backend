@@ -178,6 +178,9 @@ class ApplicationRunner:
                     {"_id": job_oid},
                     {"$set": {"status": "APPLIED", "applied_at": applied_at or now, "failure_reason": None, "updated_at": now}}
                 )
+                # Nothing left to answer once Dice has the application
+                if ObjectId.is_valid(app_id):
+                    await get_database().application_answers.delete_many({"application_id": ObjectId(app_id), "is_answered": False})
             elif status in (
                 ApplicationState.FAILED,
                 ApplicationState.SESSION_EXPIRED,
