@@ -336,7 +336,7 @@ class ApplicationQueueManager:
                 results.append({"job_id": jid, "error": str(e)})
         return results
 
-    async def cancel_application(self, application_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def cancel_application(self, application_id: str, user_id: Optional[str] = None, reason: str = "Stopped by user") -> Optional[Dict[str, Any]]:
         """
         Stops a queued or running application. The status flip is atomic and conditional on
         the application still being active, so it cannot clobber a run that already finished.
@@ -352,7 +352,6 @@ class ApplicationQueueManager:
             query["user_id"] = {"$in": u_oids + [str(user_id)]}
 
         now = datetime.now(timezone.utc)
-        reason = "Stopped by user"
         doc = await self.apps_col.find_one_and_update(
             {**query, "status": {"$in": list(ApplicationState.ACTIVE)}},
             {
@@ -363,7 +362,7 @@ class ApplicationQueueManager:
                     "message": reason,
                     "updated_at": now,
                 },
-                "$push": {"progress_steps": f"Automation stopped by user at {now.strftime('%H:%M:%S')} UTC"},
+                "$push": {"progress_steps": f"Automation stopped ({reason}) at {now.strftime('%H:%M:%S')} UTC"},
             },
             projection={"job_id": 1},
         )
@@ -386,7 +385,7 @@ class ApplicationQueueManager:
                 {"$set": {"status": "MATCHED", "failure_reason": None, "updated_at": now}},
             )
 
-        logger.info(f"Application {application_id} stopped by user (running_here={was_running_here}).")
+        logger.info(f"Application {application_id} stopped: {reason} (running_here={was_running_here}).")
         return {"application_id": application_id, "status": ApplicationState.CANCELLED, "stopped": True}
 
     async def get_queue_status(self) -> Dict[str, Any]:

@@ -1,7 +1,7 @@
 import re
 import hashlib
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from urllib.parse import quote_plus
 from playwright.async_api import Page
 from app.browser.playwright_manager import playwright_manager
@@ -68,22 +68,17 @@ class DiceBrowser:
         return dice_url
 
     def _build_query(self, keywords: List[str]) -> str:
-        clean_kws = [k.strip() for k in keywords if k and k.strip()]
+        clean_kws = [k.strip().replace('"', '') for k in keywords if k and k.strip()]
         if not clean_kws:
             return "Software Engineer"
         if len(clean_kws) == 1:
             return clean_kws[0]
 
-        # Check if multiple multi-word titles/skills exist
-        has_phrases = any(" " in k for k in clean_kws)
-        if has_phrases:
-            # If user provided multiple job titles (e.g. ["Azure Solutions Architect", "Cloud Architect"]),
-            # joining with spaces forces Dice to search for all words together resulting in 0 jobs.
-            # We format with OR or use primary keyword.
-            quoted = [f'"{k}"' if " " in k and not (k.startswith('"') and k.endswith('"')) else k for k in clean_kws[:3]]
-            return " OR ".join(quoted)
-        else:
-            return " ".join(clean_kws)
+        # Use unquoted OR join across ALL keywords in the search profile.
+        # CRITICAL: Do NOT wrap phrases in double quotes (e.g. "keyword" OR "keyword")
+        # because Dice's WAF (Cloudflare/Akamai) detects quoted boolean expressions as SQL Injection
+        # and returns an immediate 403 Forbidden response.
+        return " OR ".join(clean_kws)
 
     async def _extract_cards_from_page(
         self,
@@ -291,9 +286,10 @@ class DiceBrowser:
         max_results: int,
         easy_apply_mode: str,
         card_selectors: str,
+        existing_ids: Optional[Set[str]] = None,
     ) -> List[Dict[str, Any]]:
         jobs_collected: List[Dict[str, Any]] = []
-        seen_ids = set()
+        seen_ids = set(existing_ids or ())
         current_dice_page = 1
         # Allow sufficient pages (at least 5, or up to 20) so searches can reach max_results even if many cards are skipped
         max_pages = min(20, max(5, (max_results // 5) + 3))
@@ -310,10 +306,11 @@ class DiceBrowser:
         while len(jobs_collected) < max_results and current_dice_page <= max_pages:
             logger.info(f"Scraping Dice page {current_dice_page} (Collected so far: {len(jobs_collected)} / {max_results})")
 
-            # Check for CAPTCHA or blocking
+            # Check for CAPTCHA, 403 Forbidden, or blocking
             content = await page.content()
-            if "captcha" in content.lower() or "verify you are human" in content.lower():
-                logger.warning("Dice CAPTCHA / Human verification screen detected.")
+            title = await page.title()
+            if "captcha" in content.lower() or "verify you are human" in content.lower() or "403 forbidden" in content.lower() or title.lower().startswith("403"):
+                logger.warning(f"Dice blocking/403 screen detected on page {current_dice_page}. Halting this query URL.")
                 break
 
             # Progressive scroll of the internal job cards container (Dice uses an overflow-y-auto inner element)
@@ -419,9 +416,11 @@ class DiceBrowser:
         posted_within: str = "ONE",
         radius: int = 30,
         experience_levels: Optional[List[str]] = None,
-        max_results: int = 15
+        max_results: int = 15,
+        profile_id: str = "default",
+        user_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        page = await playwright_manager.get_new_page()
+        page = await playwright_manager.get_new_page(profile_id=profile_id, user_id=user_id)
 
         clean_kws = [k.strip() for k in keywords if k and k.strip()]
         primary_query = self._build_query(clean_kws)
@@ -461,37 +460,14 @@ class DiceBrowser:
                 card_selectors=card_selectors,
             )
 
-            # --- INTELLIGENT SEARCH FALLBACKS ---
-            # Fallback 1: If 0 jobs found and we used a combined OR query, try the primary keyword alone
-            if len(jobs_collected) == 0 and primary_query != first_keyword:
-                logger.info(f"0 jobs found with combined query '{primary_query}'. Falling back to primary keyword '{first_keyword}'...")
-                jobs_collected = await self._collect_jobs_from_dice_url(
-                    page=page,
-                    base_url_fn=lambda p: self._build_dice_url(
-                        query=first_keyword,
-                        location=location,
-                        is_remote=is_remote,
-                        work_settings=work_settings,
-                        employment_types=employment_types,
-                        easy_apply_only=easy_apply_only,
-                        posted_within=posted_within,
-                        radius=radius,
-                        experience_levels=experience_levels,
-                        page_size=max_results,
-                        page=p
-                    ),
-                    max_results=max_results,
-                    easy_apply_mode=easy_apply_mode,
-                    card_selectors=card_selectors,
-                )
-
-            # Fallback 2: If still 0 jobs and posted_within was 24 hours (ONE), widen to 3 days (THREE)
+            # --- INTELLIGENT SEARCH FALLBACKS & KEYWORD EXPANSION ---
+            # Fallback 1: If 0 jobs found and posted_within was 24 hours (ONE), widen to 3 days (THREE) with primary_query
             if len(jobs_collected) == 0 and posted_within in ["ONE", "24h"]:
-                logger.info("0 jobs found in last 24h. Widening date filter to 3 days (THREE)...")
+                logger.info(f"0 jobs found in last 24h for '{primary_query}'. Widening date filter to 3 days (THREE)...")
                 jobs_collected = await self._collect_jobs_from_dice_url(
                     page=page,
                     base_url_fn=lambda p: self._build_dice_url(
-                        query=first_keyword,
+                        query=primary_query,
                         location=location,
                         is_remote=is_remote,
                         work_settings=work_settings,
@@ -508,13 +484,13 @@ class DiceBrowser:
                     card_selectors=card_selectors,
                 )
 
-            # Fallback 3: If still 0 jobs, widen date filter to 7 days (SEVEN)
+            # Fallback 2: If still 0 jobs, widen date filter to 7 days (SEVEN) with primary_query
             if len(jobs_collected) == 0 and posted_within in ["ONE", "24h", "THREE", "3d"]:
-                logger.info("0 jobs found in last 3 days. Widening date filter to 7 days (SEVEN)...")
+                logger.info(f"0 jobs found in last 3 days for '{primary_query}'. Widening date filter to 7 days (SEVEN)...")
                 jobs_collected = await self._collect_jobs_from_dice_url(
                     page=page,
                     base_url_fn=lambda p: self._build_dice_url(
-                        query=first_keyword,
+                        query=primary_query,
                         location=location,
                         is_remote=is_remote,
                         work_settings=work_settings,
@@ -531,15 +507,49 @@ class DiceBrowser:
                     card_selectors=card_selectors,
                 )
 
+            # Fallback 3: If still fewer than max_results and multiple keywords exist,
+            # sequentially query individual keywords to accumulate jobs across all profile keywords
+            if len(jobs_collected) < max_results and len(clean_kws) > 1:
+                effective_posted = "SEVEN" if len(jobs_collected) == 0 else (posted_within if posted_within not in ["24h", "3d", "7d"] else {"24h": "ONE", "3d": "THREE", "7d": "SEVEN"}.get(posted_within, "THREE"))
+                seen_ids = {j["external_job_id"] for j in jobs_collected}
+                for kw in clean_kws:
+                    if len(jobs_collected) >= max_results:
+                        break
+                    logger.info(f"Expanding search with individual keyword '{kw}' (Collected so far: {len(jobs_collected)}/{max_results})...")
+                    kw_jobs = await self._collect_jobs_from_dice_url(
+                        page=page,
+                        base_url_fn=lambda p, k=kw: self._build_dice_url(
+                            query=k,
+                            location=location,
+                            is_remote=is_remote,
+                            work_settings=work_settings,
+                            employment_types=employment_types,
+                            easy_apply_only=easy_apply_only,
+                            posted_within=effective_posted,
+                            radius=radius,
+                            experience_levels=experience_levels,
+                            page_size=max_results,
+                            page=p
+                        ),
+                        max_results=max_results - len(jobs_collected),
+                        easy_apply_mode=easy_apply_mode,
+                        card_selectors=card_selectors,
+                        existing_ids=seen_ids,
+                    )
+                    for j in kw_jobs:
+                        if j["external_job_id"] not in seen_ids:
+                            seen_ids.add(j["external_job_id"])
+                            jobs_collected.append(j)
+                            if len(jobs_collected) >= max_results:
+                                break
+
             logger.info(f"Successfully scraped {len(jobs_collected)} jobs from Dice (Filter: {easy_apply_mode})")
 
             # --- USER VIEWING WINDOW (PREVENT PREMATURE TAB CLOSING) ---
             # When the user is watching in non-headless mode, hold the browser open for ~7 seconds
             # so the user can inspect the scraped jobs, view the search results, and observe the automation.
             try:
-                from app.services.settings_service import settings_service
-                app_settings = await settings_service.get_settings()
-                if not app_settings.headless_browser:
+                if not playwright_manager.is_context_headless(profile_id):
                     mode_label = "Easy Apply only" if easy_apply_mode == "EASY_ONLY" else ("Non-Easy Apply only" if easy_apply_mode == "NON_EASY_ONLY" else "All apply types")
                     await page.evaluate(r'''({ count, mode, kws }) => {
                         const existing = document.getElementById('dice-automation-hud');

@@ -197,6 +197,12 @@ class ApplicationRunner:
                         "updated_at": now
                     }}
                 )
+            elif status == ApplicationState.SKIPPED:
+                # Dice already showed it as applied before we submitted anything
+                await self.jobs_col.update_one(
+                    {"_id": job_oid, "status": {"$ne": "APPLIED"}},
+                    {"$set": {"status": "SKIPPED", "failure_reason": failure_reason, "updated_at": now}}
+                )
 
     async def run_application(
         self,
@@ -439,6 +445,22 @@ class ApplicationRunner:
                         "progress_steps": progress_steps,
                         "failure_reason": res.get("failure_reason"),
                         "unanswered_questions": res.get("unanswered_questions", [])
+                    }
+
+                elif final_status == ApplicationState.SKIPPED:
+                    await self._update_application_doc(
+                        application_id, job["_id"],
+                        status=ApplicationState.SKIPPED,
+                        progress_steps=progress_steps,
+                        failure_reason=res.get("failure_reason"),
+                        retry_count=retry_count,
+                        max_retries=max_retries
+                    )
+                    return {
+                        "success": False,
+                        "status": ApplicationState.SKIPPED,
+                        "progress_steps": progress_steps,
+                        "failure_reason": res.get("failure_reason")
                     }
 
                 elif final_status == ApplicationState.TIMEOUT:

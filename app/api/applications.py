@@ -65,10 +65,11 @@ async def get_queue_status(user: dict = Depends(get_current_user)):
 @router.get("", response_model=List[ApplicationResponse])
 async def list_applications(
     status: Optional[str] = Query(None, description="Filter by status"),
+    automation_run_id: Optional[str] = Query(None, description="Only applications made by this automation run"),
     user: dict = Depends(get_current_user)
 ):
     user_id = user["_id"]
-    apps = await application_service.get_applications(user_id=user_id)
+    apps = await application_service.get_applications(user_id=user_id, automation_run_id=automation_run_id)
     if status and status != "ALL":
         apps = [a for a in apps if a.status == status]
     return apps

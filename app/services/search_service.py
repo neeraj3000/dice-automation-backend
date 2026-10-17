@@ -89,7 +89,9 @@ class SearchService:
         profile_id: str,
         auto_match: bool = True,
         auto_queue: Optional[bool] = None,
-        user_id: str = "default"
+        user_id: str = "default",
+        browser_profile_id: str = "default",
+        max_results: Optional[int] = None
     ) -> Dict[str, Any]:
         if not ObjectId.is_valid(profile_id) or not user_id:
             raise HTTPException(status_code=400, detail="Invalid search profile ID or missing user")
@@ -99,7 +101,7 @@ class SearchService:
             raise HTTPException(status_code=404, detail="Search profile not found")
 
         app_settings = await settings_service.get_settings(user_id=user_id)
-        max_jobs = app_settings.max_jobs_per_search or 15
+        max_jobs = max_results or app_settings.max_jobs_per_search or 15
 
         easy_apply_only = profile.get("easy_apply_only")
         if easy_apply_only is None:
@@ -115,7 +117,9 @@ class SearchService:
             posted_within=profile.get("posted_within", "ONE"),
             radius=profile.get("radius", 30),
             experience_levels=profile.get("experience_levels"),
-            max_results=max_jobs
+            max_results=max_jobs,
+            profile_id=browser_profile_id,
+            user_id=user_id
         )
 
         new_jobs_count = 0

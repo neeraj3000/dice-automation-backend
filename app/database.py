@@ -91,6 +91,22 @@ async def connect_db():
     except Exception:
         pass
 
+    # Timed automations: at most one RUNNING run per user, enforced by the unique partial index
+    try:
+        await db_instance.db.automations.create_index([("user_id", 1), ("created_at", -1)])
+        runs_col = db_instance.db.automation_runs
+        await runs_col.create_index([("automation_id", 1), ("started_at", -1)])
+        await runs_col.create_index([("status", 1), ("heartbeat_at", 1)])
+        await runs_col.create_index(
+            [("user_id", 1)],
+            name="one_running_automation_per_user",
+            unique=True,
+            partialFilterExpression={"status": "RUNNING"},
+        )
+        await db_instance.db.applications.create_index([("automation_run_id", 1)])
+    except Exception as e:
+        print(f"[DB] Failed to ensure automation indexes: {e}")
+
 async def close_db():
     if db_instance.client:
         db_instance.client.close()

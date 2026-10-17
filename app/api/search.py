@@ -103,7 +103,8 @@ async def run_search_job(body: dict = Body(...), user: dict = Depends(get_curren
                 employment_types=employment_types,
                 easy_apply_only=easy_apply,
                 posted_within=dice_posted,
-                max_results=max_results
+                max_results=max_results,
+                user_id=user_id
             )
 
             await db.searches.update_one({"_id": ObjectId(search_id)}, {"$set": {"found": len(jobs)}})

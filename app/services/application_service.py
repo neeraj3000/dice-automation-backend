@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any, Awaitable, Callable
+from typing import List, Optional, Dict, Any, Awaitable, Callable, Tuple
 from bson import ObjectId
 from fastapi import HTTPException
 
@@ -110,17 +110,9 @@ class ApplicationService:
     def answers_col(self):
         return get_database().application_answers
 
-    async def prepare_application(self, req: ApplicationCreate) -> ApplicationResponse:
-        if not ObjectId.is_valid(req.job_id):
-            raise HTTPException(status_code=400, detail="Invalid job ID")
-
-        job = await self.jobs_col.find_one({"_id": ObjectId(req.job_id)})
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-
-        # Select resume (only ever from the requesting user's own library)
-        owner_filter = user_resume_filter(getattr(req, "user_id", None) or job.get("user_id")) or {"_id": None}
-        resume_id = req.resume_id
+    async def _resolve_resume(self, job: Dict[str, Any], user_id: Optional[str], resume_id: Optional[str] = None) -> Dict[str, Any]:
+        """Picks the resume to apply with, only ever from the applying user's own library."""
+        owner_filter = user_resume_filter(user_id or job.get("user_id")) or {"_id": None}
         if not resume_id:
             # Check if job already has recommended resume
             if job.get("match_result") and job["match_result"].get("recommended_resume_id"):
@@ -133,18 +125,19 @@ class ApplicationService:
         # If no resume specified or the referenced resume was deleted/replaced, re-match against current active library
         if not resume:
             # Run matching now against active resumes
+            jd_data = None
             jd_structured = job.get("description_structured")
             if not jd_structured:
                 jd_data = await jd_service.analyze_job_description(job.get("description_raw", ""), job.get("title", ""))
                 jd_structured = jd_data.model_dump()
                 await self.jobs_col.update_one(
-                    {"_id": ObjectId(req.job_id)},
+                    {"_id": job["_id"]},
                     {"$set": {"description_structured": jd_structured}}
                 )
             match_res = await matching_service.match_job_against_all_resumes(
-                jd_data if 'jd_data' in locals() else await jd_service.analyze_job_description(job.get("description_raw", "")),
+                jd_data or await jd_service.analyze_job_description(job.get("description_raw", "")),
                 job_id=str(job["_id"]),
-                user_id=getattr(req, "user_id", None) or job.get("user_id"),
+                user_id=user_id or job.get("user_id"),
             )
             resume_id = match_res.recommended_resume_id
             if resume_id and ObjectId.is_valid(resume_id):
@@ -155,28 +148,36 @@ class ApplicationService:
             resume = await self.resumes_col.find_one(owner_filter)
             if not resume:
                 raise HTTPException(status_code=400, detail="No matching resume found in library. Please upload a resume first.")
-            resume_id = str(resume["_id"])
+        return resume
 
+    async def _upsert_application(
+        self,
+        job: Dict[str, Any],
+        resume: Dict[str, Any],
+        target_uid: str,
+        mode: str,
+        extra_fields: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[ObjectId, Dict[str, Any]]:
+        """Creates (or resets) the job's application record in the APPLYING state."""
         now = datetime.now(timezone.utc)
-        # Create or update Application doc
-        existing_app = await self.apps_col.find_one({"job_id": ObjectId(req.job_id)})
+        existing_app = await self.apps_col.find_one({"job_id": job["_id"]})
         if existing_app and execution_control.is_running_locally(str(existing_app["_id"])):
             raise HTTPException(status_code=409, detail="An application for this job is already in progress.")
-        target_uid = str(getattr(req, "user_id", None) or "default")
         app_data = {
-            "job_id": ObjectId(req.job_id),
+            "job_id": job["_id"],
             "user_id": target_uid,
-            "resume_id": ObjectId(resume_id),
+            "resume_id": resume["_id"],
             "company": job.get("company", "Company"),
             "job_title": job.get("title", "Job Title"),
             "application_url": job.get("application_url") or job.get("job_url", ""),
             "resume_name": resume.get("display_name") if (resume.get("file_name") and resume.get("file_name") in str(resume.get("display_name"))) else f"{resume.get('display_name', '')} ({resume.get('file_name', '')})".strip(),
             "status": "APPLYING",
-            "mode": req.mode or "PREPARE",
+            "mode": mode,
             "progress_steps": ["Application preparation started", f"Selected resume: {resume.get('display_name')}"],
             "failure_reason": "",
             "cancel_requested": False,
-            "updated_at": now
+            "updated_at": now,
+            **(extra_fields or {}),
         }
 
         if existing_app:
@@ -188,6 +189,19 @@ class ApplicationService:
             app_id = res.inserted_id
         # Questions from an earlier attempt no longer apply to this run
         await self.answers_col.delete_many({"application_id": app_id, "is_answered": False})
+        return app_id, app_data
+
+    async def prepare_application(self, req: ApplicationCreate) -> ApplicationResponse:
+        if not ObjectId.is_valid(req.job_id):
+            raise HTTPException(status_code=400, detail="Invalid job ID")
+
+        job = await self.jobs_col.find_one({"_id": ObjectId(req.job_id)})
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        resume = await self._resolve_resume(job, getattr(req, "user_id", None), req.resume_id)
+        target_uid = str(getattr(req, "user_id", None) or "default")
+        app_id, app_data = await self._upsert_application(job, resume, target_uid, req.mode or "PREPARE")
 
         # Pre-check: Validate that candidate has active session tokens before launching browser
         from app.services.session_store import get_session_store
@@ -252,24 +266,81 @@ class ApplicationService:
                 logger.debug(f"Heartbeat failed for {app_id}: {e}")
             await asyncio.sleep(HEARTBEAT_INTERVAL)
 
-    async def _run_in_background(self, app_id: ObjectId, job_id: Any, resume: Dict[str, Any], base_steps: List[str], make_run: Callable[[str], Awaitable[Dict[str, Any]]]):
+    async def _run_in_background(
+        self,
+        app_id: ObjectId,
+        job_id: Any,
+        resume: Dict[str, Any],
+        base_steps: List[str],
+        make_run: Callable[[str], Awaitable[Dict[str, Any]]],
+        include_login_prompt: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        """Runs one application to completion. Returns the browser result, or None if it was stopped."""
         hb = asyncio.create_task(self._heartbeat(app_id))
         try:
             async with resume_file_for(resume) as resume_path:
                 cancelled, browser_res = await execution_control.run_cancellable(str(app_id), make_run(str(resume_path)))
-            if not cancelled:
-                await self._finish_run(app_id, job_id, base_steps, browser_res)
+            if cancelled:
+                return None
+            await self._finish_run(app_id, job_id, base_steps, browser_res, include_login_prompt)
+            return browser_res
         except Exception as e:
             logger.error(f"Application {app_id} run failed: {e}", exc_info=True)
-            await self._finish_run(app_id, job_id, base_steps, {
+            browser_res = {
                 "status": "FAILED",
                 "progress_steps": [f"Automation stopped: {e}"],
                 "failure_reason": str(e) or "Application automation failed.",
-            })
+            }
+            await self._finish_run(app_id, job_id, base_steps, browser_res, include_login_prompt)
+            return browser_res
         finally:
             hb.cancel()
 
-    async def _finish_run(self, app_id: ObjectId, job_id: Any, base_steps: List[str], browser_res: Dict[str, Any]):
+    async def run_automated_application(
+        self,
+        job: Dict[str, Any],
+        user_id: str,
+        automation_run_id: ObjectId,
+        status_callback: Optional[Callable[[str], Any]] = None,
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """
+        Applies to one job on behalf of an automation run and waits for the outcome.
+        The run uses the user's own browser profile, and a lost Dice login is reported to the
+        automation instead of being queued as a review question.
+        """
+        resume = await self._resolve_resume(job, user_id)
+        app_id, app_data = await self._upsert_application(
+            job, resume, user_id, "APPLY", {"automation_run_id": automation_run_id}
+        )
+        user_profile = await settings_service.get_profile(user_id=user_id)
+        res = await self._run_in_background(
+            app_id, job["_id"], resume, app_data["progress_steps"],
+            lambda resume_path: application_browser.prepare_application(
+                application_url=app_data["application_url"],
+                resume_file_path=resume_path,
+                user_profile=user_profile,
+                mode="APPLY",
+                profile_id=user_id,
+                status_callback=status_callback,
+                user_id=user_id,
+            ),
+            include_login_prompt=False,
+        )
+        return str(app_id), res
+
+    async def add_review_item(self, app_id: ObjectId, question_text: str, field_name: str = "", options: Optional[List[str]] = None):
+        """Puts a pending item for the application into the user's Review Queue."""
+        await self.answers_col.insert_one({
+            "application_id": app_id,
+            "question_text": question_text,
+            "field_name": field_name,
+            "options": options or [],
+            "answer_text": "",
+            "is_answered": False,
+            "created_at": datetime.now(timezone.utc),
+        })
+
+    async def _finish_run(self, app_id: ObjectId, job_id: Any, base_steps: List[str], browser_res: Dict[str, Any], include_login_prompt: bool = True):
         """Persists a run's outcome on the application, its job, and the review queue."""
         now = datetime.now(timezone.utc)
         status = browser_res.get("status") or "FAILED"
@@ -297,12 +368,21 @@ class ApplicationService:
             job_update = {"status": "FAILED", "failure_reason": failure_reason or f"Application halted: {status}"}
         elif status == "REVIEW":
             job_update = {"status": "REVIEW"}
+        elif status == "SKIPPED":
+            # Dice already showed it as applied before anything was submitted
+            job_update = {"status": "SKIPPED", "failure_reason": failure_reason}
         else:
             job_update = None
         if job_update and job_id and ObjectId.is_valid(str(job_id)):
-            await self.jobs_col.update_one({"_id": ObjectId(str(job_id))}, {"$set": {**job_update, "updated_at": now}})
+            job_filter: Dict[str, Any] = {"_id": ObjectId(str(job_id))}
+            if status == "SKIPPED":
+                # Keep a job we verifiably applied to earlier marked APPLIED
+                job_filter["status"] = {"$ne": "APPLIED"}
+            await self.jobs_col.update_one(job_filter, {"$set": {**job_update, "updated_at": now}})
 
         for q in browser_res.get("unanswered_questions") or []:
+            if q.get("is_login_prompt") and not include_login_prompt:
+                continue
             await self.answers_col.insert_one({
                 "application_id": app_id,
                 "question_text": q["question_text"],
@@ -313,11 +393,15 @@ class ApplicationService:
                 "created_at": now
             })
 
-    async def get_applications(self, user_id: Optional[Any] = None) -> List[ApplicationResponse]:
+    async def get_applications(self, user_id: Optional[Any] = None, automation_run_id: Optional[str] = None) -> List[ApplicationResponse]:
         if not user_id:
             return []
         u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
-        query = {"user_id": {"$in": u_oids + [str(user_id)]}}
+        query: Dict[str, Any] = {"user_id": {"$in": u_oids + [str(user_id)]}}
+        if automation_run_id:
+            if not ObjectId.is_valid(automation_run_id):
+                return []
+            query["automation_run_id"] = ObjectId(automation_run_id)
         cursor = self.apps_col.find(query).sort("created_at", -1)
         apps = []
         async for doc in cursor:

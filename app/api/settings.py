@@ -82,6 +82,9 @@ async def get_app_settings(user: dict = Depends(get_current_user)):
     data = app_cfg.model_dump()
     data["profile"] = profile_dict
     data["headless"] = data.get("headless_browser", False)
+    # The deployment can force headless (server mode has no screen); the UI then disables the toggle
+    from app.browser.playwright_manager import playwright_manager
+    data["headless_locked"] = playwright_manager.headless_locked
     return data
 
 @router.put("/settings")

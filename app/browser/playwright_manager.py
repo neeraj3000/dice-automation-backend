@@ -104,6 +104,40 @@ class PlaywrightManager:
         return self.headless
 
     @property
+    def headless_locked(self) -> bool:
+        """True when the deployment forces the headless mode, so the per-user setting is ignored
+        (explicit HEADLESS env/config, or server mode: a cloud container has no screen)."""
+        return (
+            os.environ.get("HEADLESS") is not None
+            or os.environ.get("HEADLESS_BROWSER") is not None
+            or settings.HEADLESS is not None
+            or settings.HEADLESS_BROWSER is not None
+            or self.browser_mode == "server"
+        )
+
+    async def resolve_headless(self, profile_id: str = "default", headless: Optional[bool] = None, user_id: Optional[str] = None) -> bool:
+        """
+        Headless mode for a new browser: an explicit argument wins; otherwise the deployment's
+        forced mode; otherwise the owning user's own "show browser" setting.
+        """
+        if headless is not None:
+            return headless
+        owner = user_id or (profile_id if profile_id != "default" else None)
+        if self.headless_locked or not owner:
+            return self.headless
+        try:
+            from app.services.settings_service import settings_service
+            app_cfg = await settings_service.get_settings(user_id=owner)
+            return bool(app_cfg.headless_browser)
+        except Exception as e:
+            logger.debug(f"Could not read headless setting for user '{owner}': {e}")
+            return self.headless
+
+    def is_context_headless(self, profile_id: str = "default") -> bool:
+        """Whether the browser currently open for profile_id is headless."""
+        return self._context_headless.get(profile_id, self.headless)
+
+    @property
     def is_cloud_mode(self) -> bool:
         """True if running in server mode or headless mode."""
         return self.browser_mode == "server" or self.headless
@@ -333,11 +367,13 @@ class PlaywrightManager:
         self,
         profile_id: str = "default",
         headless: Optional[bool] = None,
-        restore_session: bool = True
+        restore_session: bool = True,
+        user_id: Optional[str] = None
     ) -> BrowserContext:
         """
         Returns or creates an isolated persistent BrowserContext for the specified profile_id.
-        Profiles are fully segregated on the filesystem.
+        Profiles are fully segregated on the filesystem. user_id selects whose "show browser"
+        setting applies (defaults to profile_id when that is a user's own profile).
         """
         self._ensure_loop_and_locks()
         profile_lock = self._get_profile_lock(profile_id)
@@ -345,18 +381,7 @@ class PlaywrightManager:
             self._cancel_idle_close(profile_id)
 
             # 1. Determine target headless mode
-            if headless is not None:
-                target_headless = headless
-            else:
-                target_headless = self.headless
-                if os.environ.get("HEADLESS") is None and os.environ.get("HEADLESS_BROWSER") is None and settings.HEADLESS is None and settings.HEADLESS_BROWSER is None and self.browser_mode != "server":
-                    try:
-                        from app.services.settings_service import settings_service
-                        app_cfg = await settings_service.get_settings()
-                        if getattr(app_cfg, "headless_browser", None) is not None:
-                            target_headless = bool(app_cfg.headless_browser)
-                    except Exception:
-                        pass
+            target_headless = await self.resolve_headless(profile_id, headless, user_id)
 
             # 2. Check if existing context can be reused
             existing_ctx = self._contexts.get(profile_id)
@@ -364,7 +389,8 @@ class PlaywrightManager:
                 try:
                     if hasattr(existing_ctx, "is_closed") and existing_ctx.is_closed():
                         self._contexts.pop(profile_id, None)
-                    elif self._context_headless.get(profile_id) != target_headless:
+                    elif self._context_headless.get(profile_id) != target_headless and not self._has_active_pages(profile_id):
+                        # Never restart a browser that another automation page is still using
                         logger.info(f"Switching profile '{profile_id}' context headless={self._context_headless.get(profile_id)} -> {target_headless}")
                         try:
                             await existing_ctx.close()
@@ -506,7 +532,8 @@ class PlaywrightManager:
     async def get_new_page(
         self,
         profile_id: str = "default",
-        headless: Optional[bool] = None
+        headless: Optional[bool] = None,
+        user_id: Optional[str] = None
     ) -> Page:
         """
         Creates a new Page in the isolated context for profile_id.
@@ -515,7 +542,7 @@ class PlaywrightManager:
         self._ensure_loop_and_locks()
         for attempt in range(2):
             try:
-                context = await self.get_context(profile_id=profile_id, headless=headless)
+                context = await self.get_context(profile_id=profile_id, headless=headless, user_id=user_id)
                 # Cleanup older zombie pages to prevent memory leaks
                 open_pages = [p for p in context.pages if not p.is_closed()]
                 if len(open_pages) > 3:

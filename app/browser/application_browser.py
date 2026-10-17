@@ -30,6 +30,11 @@ EXTERNAL_PORTAL_DOMAINS = (
 # Final wizard button; tolerant of whitespace/icons around the label
 SUBMIT_LABEL = re.compile(r"^\s*(Submit|Submit Application|Send Application)\s*$", re.I)
 
+ALREADY_APPLIED_REASON = (
+    "Skipped: Dice already shows this job as applied, so Apply2Hire did not submit it. "
+    "Open the job on Dice to check."
+)
+
 UNCONFIRMED_REASON = (
     "Dice did not confirm this application. Check the job on Dice; "
     "if it isn't marked Applied, try again."
@@ -138,21 +143,62 @@ class ApplicationBrowser:
             logger.debug(f"Error checking login wall: {e}")
         return False
 
-    async def _is_already_applied(self, page) -> bool:
+    async def _applied_signal(self, page) -> Optional[str]:
         """
-        Dice marks a job the candidate has applied to by rendering the apply button
-        as a disabled button labelled "Applied" (or a dedicated applied badge).
+        Dice marks a job the candidate has applied to by rendering *its own* apply button as a
+        disabled "Applied" button. The job page also lists other jobs (similar / recommended
+        cards) that carry "Applied" badges for jobs the user applied to before; those must not
+        count, or a job gets marked applied without ever being submitted.
+        Returns a short description of the matching element, or None.
         """
+        m = re.search(r"/job-detail/([A-Za-z0-9\-]+)", page.url or "", re.I)
+        own_job_id = m.group(1).lower() if m else ""
         try:
-            applied = page.locator(
-                '[data-testid="apply-button"]:has-text("Applied"), '
-                '#applied-label, [data-testid="applied-button"], [data-testid*="applied-badge"], '
-                'button:text-is("Applied")'
-            ).first
-            return await applied.count() > 0 and await applied.is_visible()
+            candidates = page.locator(
+                '[data-testid="apply-button"]:has-text("Applied"), apply-button-wc :text-is("Applied"), '
+                '#applied-label, [data-testid="applied-button"], button:text-is("Applied")'
+            )
+            for i in range(min(await candidates.count(), 20)):
+                el = candidates.nth(i)
+                if not await el.is_visible():
+                    continue
+                belongs_to_other_job = await el.evaluate(
+                    """(e, ownId) => {
+                        const card = e.closest('[data-testid*="job-card" i], [role="article"], [data-testid*="similar" i], '
+                            + '[data-testid*="recommend" i], [class*="similar" i], [class*="recommend" i]');
+                        if (card) return true;
+                        const guid = e.closest('[data-job-guid]');
+                        if (guid && ownId && !guid.getAttribute('data-job-guid').toLowerCase().includes(ownId)) return true;
+                        const link = e.closest('a[href*="/job-detail/"]');
+                        return Boolean(link && (!ownId || !link.getAttribute('href').toLowerCase().includes(ownId)));
+                    }""",
+                    own_job_id,
+                )
+                if belongs_to_other_job:
+                    continue
+                desc = await el.evaluate(
+                    "e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.dataset.testid ? '[data-testid=' + e.dataset.testid + ']' : '')"
+                )
+                return f"{desc} \"{(await el.inner_text()).strip()[:20]}\""
         except Exception as e:
             logger.debug(f"Applied-state check notice: {e}")
-        return False
+        return None
+
+    async def _is_already_applied(self, page) -> bool:
+        return bool(await self._applied_signal(page))
+
+    @staticmethod
+    def _already_applied_result(progress_steps: List[str], signal: str) -> Dict[str, Any]:
+        """Dice already shows the job as applied before we submitted anything: never report it
+        as applied by us, because only a submission we made and verified counts."""
+        progress_steps.append(f"Dice already shows this job as applied ({signal}); nothing was submitted")
+        return {
+            "success": False,
+            "status": "SKIPPED",
+            "progress_steps": progress_steps,
+            "unanswered_questions": [],
+            "failure_reason": ALREADY_APPLIED_REASON,
+        }
 
     @staticmethod
     def _job_detail_url(url: str) -> Optional[str]:
@@ -165,18 +211,20 @@ class ApplicationBrowser:
         m = re.search(r"https?://[^/]*dice\.com/job-applications/([A-Za-z0-9\-]+)", url or "", re.I)
         return f"https://www.dice.com/job-detail/{m.group(1)}" if m else None
 
-    async def _verify_applied_with_retries(self, page, job_url: Optional[str], attempts: int = 3) -> bool:
-        """Dice can take a few seconds to reflect a new application, so check more than once."""
+    async def _verify_applied_with_retries(self, page, job_url: Optional[str], attempts: int = 3) -> Optional[str]:
+        """Dice can take a few seconds to reflect a new application, so check more than once.
+        Returns the applied signal found on the job's own page, or None."""
         if not job_url:
-            return False
+            return None
         for attempt in range(attempts):
             if attempt:
                 await page.wait_for_timeout(5000)
-            if await self._verify_applied_on_job_page(page, job_url):
-                return True
-        return False
+            signal = await self._verify_applied_on_job_page(page, job_url)
+            if signal:
+                return signal
+        return None
 
-    async def _verify_applied_on_job_page(self, page, job_url: str) -> bool:
+    async def _verify_applied_on_job_page(self, page, job_url: str) -> Optional[str]:
         """Reopens the job detail page and checks whether Dice now shows it as applied."""
         try:
             await page.goto(job_url, wait_until="domcontentloaded", timeout=30000)
@@ -184,10 +232,10 @@ class ApplicationBrowser:
                 await page.wait_for_selector('[data-testid="apply-button"], #applied-label', state="visible", timeout=10000)
             except Exception:
                 pass
-            return await self._is_already_applied(page)
+            return await self._applied_signal(page)
         except Exception as e:
             logger.debug(f"Could not re-verify applied state on job page: {e}")
-        return False
+        return None
 
     async def _refresh_session_cookies(self, context, user_id: Optional[str], profile_id: str) -> bool:
         """
@@ -260,20 +308,30 @@ class ApplicationBrowser:
         try:
             if page is None:
                 own_page = True
-                page = await playwright_manager.get_new_page(profile_id=profile_id)
+                page = await playwright_manager.get_new_page(profile_id=profile_id, user_id=user_id)
             elif should_close_page is True:
                 own_page = True
 
             target_url = (application_url or "").strip()
             if not target_url or not target_url.startswith("http"):
                 logger.info(f"No valid HTTP URL provided: '{target_url}'. Skipping browser navigation.")
-                progress_steps.append("No external job URL provided (direct matched JD). Application marked ready.")
+                if mode == "PREPARE":
+                    progress_steps.append("No external job URL provided (direct matched JD). Application marked ready.")
+                    return {
+                        "success": True,
+                        "status": "READY",
+                        "progress_steps": progress_steps,
+                        "unanswered_questions": [],
+                        "failure_reason": None
+                    }
+                # Nothing was submitted, so this must not be reported as applied
+                progress_steps.append("No Dice application link for this job; nothing was submitted")
                 return {
-                    "success": True,
-                    "status": "READY" if mode == "PREPARE" else "SUBMITTED",
+                    "success": False,
+                    "status": "FAILED",
                     "progress_steps": progress_steps,
                     "unanswered_questions": [],
-                    "failure_reason": None
+                    "failure_reason": "This job has no Dice application link, so it can't be applied to automatically."
                 }
 
             await self._refresh_session_cookies(page.context, user_id, profile_id)
@@ -352,15 +410,9 @@ class ApplicationBrowser:
 
                 # Dice renders an applied job's apply button as a disabled "Applied" button.
                 # Detect that first, otherwise it would be matched (and clicked) as the Apply button.
-                if await self._is_already_applied(page):
-                    progress_steps.append("Job is verified as already applied on Dice")
-                    return {
-                        "success": True,
-                        "status": "SUBMITTED",
-                        "progress_steps": progress_steps,
-                        "unanswered_questions": [],
-                        "failure_reason": None
-                    }
+                signal = await self._applied_signal(page)
+                if signal:
+                    return self._already_applied_result(progress_steps, signal)
 
                 # Find active Apply button on job detail page
                 apply_btn = page.locator(
@@ -388,22 +440,9 @@ class ApplicationBrowser:
 
                 # Check if job was truly already applied to (ONLY if NO apply button exists AND explicit applied badge exists)
                 if not has_apply_btn:
-                    applied_badge = page.locator(
-                        '#applied-label, [data-testid="applied-button"], button:has-text("Applied")[disabled], '
-                        'span[data-testid*="applied"], div[data-testid*="applied"], [data-testid*="applied-badge"]'
-                    ).first
-                    try:
-                        if await applied_badge.count() and await applied_badge.is_visible():
-                            progress_steps.append("Job is verified as already applied on Dice")
-                            return {
-                                "success": True,
-                                "status": "SUBMITTED",
-                                "progress_steps": progress_steps,
-                                "unanswered_questions": [],
-                                "failure_reason": None
-                            }
-                    except Exception:
-                        pass
+                    signal = await self._applied_signal(page)
+                    if signal:
+                        return self._already_applied_result(progress_steps, signal)
 
                 if has_apply_btn:
                     # Don't block on a disabled button (Playwright would retry the click for 30s)
@@ -417,15 +456,9 @@ class ApplicationBrowser:
                     except Exception:
                         btn_enabled = False
                     if not btn_enabled:
-                        if await self._is_already_applied(page):
-                            progress_steps.append("Job is verified as already applied on Dice")
-                            return {
-                                "success": True,
-                                "status": "SUBMITTED",
-                                "progress_steps": progress_steps,
-                                "unanswered_questions": [],
-                                "failure_reason": None
-                            }
+                        signal = await self._applied_signal(page)
+                        if signal:
+                            return self._already_applied_result(progress_steps, signal)
                         progress_steps.append("Apply button is disabled on Dice")
                         return {
                             "success": False,
@@ -559,10 +592,10 @@ class ApplicationBrowser:
                         if job_page_url:
                             verified = await self._verify_applied_with_retries(page, job_page_url)
                         else:
-                            verified = page_confirmed
+                            verified = "Dice confirmation message" if page_confirmed else None
 
                         if verified:
-                            progress_steps.append("Verified on Dice: job now shows as Applied")
+                            progress_steps.append(f"Verified on Dice: job now shows as Applied ({verified})")
                             await _notify_status(status_callback, "SUBMITTED")
                             return {
                                 "success": True,
@@ -630,8 +663,9 @@ class ApplicationBrowser:
             # In APPLY mode the wizard may have submitted via a differently-labelled final button;
             # check Dice before reporting anything else.
             if mode != "PREPARE":
-                if await self._verify_applied_with_retries(page, self._job_detail_url(target_url)):
-                    progress_steps.append("Verified on Dice: job now shows as Applied")
+                verified = await self._verify_applied_with_retries(page, self._job_detail_url(target_url))
+                if verified:
+                    progress_steps.append(f"Verified on Dice: job now shows as Applied ({verified})")
                     await _notify_status(status_callback, "SUBMITTED")
                     return {
                         "success": True,
@@ -985,14 +1019,8 @@ class ApplicationBrowser:
                 except Exception:
                     pass
 
-            # 3. Confirmation elements / testids
-            confirm_elems = page.locator(
-                '[data-testid*="success" i], [data-testid*="confirmation" i], '
-                '[class*="success-message" i], [data-testid*="applied-badge" i], '
-                '[data-testid="applied-button"]'
-            ).first
-            if await confirm_elems.count() and await confirm_elems.is_visible():
-                return True
+            # Generic "success"/"applied" widgets are deliberately not trusted here: they also
+            # appear for other jobs and produced applications marked applied that never were.
 
             # 4. Strict explicit body confirmation phrases
             body_text = (await page.locator("body").inner_text()).lower()

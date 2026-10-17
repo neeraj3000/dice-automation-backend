@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import connect_db, close_db, get_database
-from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards, avatar as avatar_api
+from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards, avatar as avatar_api, automations
 
 
 @asynccontextmanager
@@ -105,7 +105,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Dice-Automation] Notice during application queue startup: {e}")
 
+    # Startup: Mark automation runs abandoned by a previous process as interrupted
+    try:
+        from app.services.automation_service import automation_service
+        await automation_service.recover_on_startup()
+    except Exception as e:
+        print(f"[Dice-Automation] Notice during automation recovery: {e}")
+
     yield
+
+    # Shutdown: End running automations cleanly (records them as interrupted)
+    try:
+        from app.services.automation_service import automation_service
+        await automation_service.shutdown()
+    except Exception as e:
+        print(f"[Dice-Automation] Error stopping automations: {e}")
 
     # Shutdown: Stop application queue worker
     try:
@@ -189,6 +203,8 @@ routers = [
     auth.router,
     boards.router,
     avatar_api.router,
+    automations.router,
+    automations.runs_router,
 ]
 
 # Include Routers at root (available directly at http://localhost:8000/)
