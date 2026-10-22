@@ -9,6 +9,7 @@ from app.config import settings
 from app.services.billing.billing_repository import billing_repository
 from app.services.billing.plan_catalog import plan_catalog
 from app.services.billing.stripe_gateway import as_dict, get_stripe
+from app.services.realtime import BILLING_UPDATED, notify_user
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,8 @@ class SubscriptionService:
             if await billing_repository.replace_subscription(
                 user_id, sub["customer"], snapshot, stored["id"] if stored else None
             ):
+                # Plan changed (checkout, portal, renewal, webhook): refresh the user's open tabs
+                await notify_user(user_id, BILLING_UPDATED)
                 return
         logger.error("Could not store subscription %s for user %s after retries.", subscription_id, user_id)
 

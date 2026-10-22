@@ -39,6 +39,7 @@ from app.schemas.automation import (
 )
 from app.services.matching_service import user_resume_filter
 from app.services.billing import PlanLimitError, entitlement_service
+from app.services.realtime import AUTOMATION_UPDATED, notify_user
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +298,7 @@ class AutomationService:
             )
             if res.modified_count:
                 await self._release_active_applications(doc["_id"], str(doc.get("user_id")), "Automation interrupted")
+                await notify_user(doc.get("user_id"), AUTOMATION_UPDATED)
         return len(stale)
 
     async def get_active_run(self, user_id: str) -> Optional[AutomationRunResponse]:
@@ -413,6 +415,7 @@ class AutomationService:
         task = asyncio.create_task(self._execute(ctx))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        await notify_user(user_id, AUTOMATION_UPDATED)
         return self._run_out(run_doc)
 
     async def stop_run(self, user_id: str, run_id: str) -> AutomationRunResponse:
@@ -431,6 +434,7 @@ class AutomationService:
         if ctx:
             self._request_end(ctx, AutomationRunStatus.STOPPED, "Stopped by you.")
         # Otherwise another worker owns the run; its watchdog picks up the DB flag
+        await notify_user(user_id, AUTOMATION_UPDATED)
         return self._run_out(doc)
 
     async def set_paused(self, user_id: str, run_id: str, paused: bool) -> AutomationRunResponse:
@@ -454,6 +458,7 @@ class AutomationService:
                 {"_id": run_oid},
                 {"$push": {"events": {"$each": [{"at": _utcnow(), "type": "info", "message": "Pausing after the current step finishes…"}], "$slice": -MAX_EVENTS}}},
             )
+        await notify_user(user_id, AUTOMATION_UPDATED)
         return self._run_out(doc)
 
     # ----- Lifecycle -----------------------------------------------------------
@@ -492,6 +497,7 @@ class AutomationService:
             await self.runs_col.update_one({"_id": ctx.run_id}, update)
         except Exception as e:
             logger.debug(f"Could not record automation event: {e}")
+        await notify_user(ctx.user_id, AUTOMATION_UPDATED)
 
     async def _set(self, ctx: _RunContext, inc: Optional[Dict[str, int]] = None, **set_fields):
         update: Dict[str, Any] = {"$set": {"updated_at": _utcnow(), **set_fields}}
@@ -501,6 +507,7 @@ class AutomationService:
             await self.runs_col.update_one({"_id": ctx.run_id}, update)
         except Exception as e:
             logger.debug(f"Could not update automation run: {e}")
+        await notify_user(ctx.user_id, AUTOMATION_UPDATED)
 
     async def _watchdog(self, ctx: _RunContext):
         """Enforces the timer and stop requests, and keeps the run's heartbeat fresh."""
@@ -601,6 +608,7 @@ class AutomationService:
         except Exception as e:
             logger.error(f"Could not finalize automation run {ctx.run_id}: {e}")
         logger.info(f"Automation run {ctx.run_id} finished: {status} ({reason})")
+        await notify_user(ctx.user_id, AUTOMATION_UPDATED)
 
     async def _release_active_applications(self, run_id: ObjectId, user_id: str, reason: str):
         """Cancels any application of this run that is still in flight and frees its job."""

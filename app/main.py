@@ -165,7 +165,7 @@ if settings.is_prod:
     cors_kwargs = {
         "allow_origins": explicit_origins,
         "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        "allow_headers": ["Authorization", "Content-Type", "Accept", "X-Refresh-Token"],
+        "allow_headers": ["Authorization", "Content-Type", "Accept", "X-Refresh-Token", "X-Timezone"],
         "allow_credentials": True,
     }
 else:

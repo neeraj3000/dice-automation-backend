@@ -1,7 +1,8 @@
 """
 What a user's plan allows and how much of it they've used.
 
-Paid plans: N applications per day (resets at midnight in BILLING_TIMEZONE).
+Paid plans: N applications per day, resetting at midnight in the user's own timezone
+(sent by the browser, stored on the billing account; BILLING_TIMEZONE until we know it).
 Trial: N applications in total until the trial ends.
 An application counts once it is submitted, or while it is queued / in flight, so a large
 batch can't overshoot the allowance before any of it finishes.
@@ -10,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from bson import ObjectId
 from fastapi import HTTPException, status
@@ -66,10 +67,23 @@ def _user_filter(user_id: str) -> Dict[str, Any]:
     return {"user_id": {"$in": ids}}
 
 
-def _today_window(now: datetime) -> tuple[datetime, datetime]:
-    tz = ZoneInfo(settings.BILLING_TIMEZONE)
+def valid_timezone(name: Optional[str]) -> Optional[str]:
+    """Returns `name` if it is a real IANA timezone (e.g. "Asia/Kolkata"), else None."""
+    if not name or len(name) > 64:
+        return None
+    try:
+        ZoneInfo(name)
+        return name
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+def _today_window(now: datetime, tz_name: Optional[str] = None) -> tuple[datetime, datetime]:
+    tz = ZoneInfo(valid_timezone(tz_name) or settings.BILLING_TIMEZONE)
     start = now.astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0)
-    return start.astimezone(timezone.utc), (start + timedelta(days=1)).astimezone(timezone.utc)
+    # Add the day in local time, then re-resolve the offset so DST-change days stay midnight to midnight
+    end = (start.replace(tzinfo=None) + timedelta(days=1)).replace(tzinfo=tz)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
 
 
 async def _paid_plan(subscription: Dict[str, Any]) -> Optional[Plan]:
@@ -105,7 +119,7 @@ class EntitlementService:
         if is_entitled(subscription):
             plan = await _paid_plan(subscription)
             if plan:
-                return Entitlement(plan, "subscription", account, *_today_window(now))
+                return Entitlement(plan, "subscription", account, *_today_window(now, account.get("timezone")))
 
         trial_start, trial_end = as_utc(account.get("trial_started_at")), as_utc(account.get("trial_ends_at"))
         if trial_end and now < trial_end:

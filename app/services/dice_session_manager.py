@@ -26,6 +26,7 @@ class DiceSessionManager:
         self._active_page: Optional[Page] = None
         self._watcher_task: Optional[asyncio.Task] = None
         self._subscribers: Set[asyncio.Queue] = set()
+        self._queue_users: Dict[asyncio.Queue, Optional[str]] = {}
         self._lock: Optional[asyncio.Lock] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._status: str = "IDLE"  # IDLE, WAITING_FOR_LOGIN, CONNECTED, CANCELLED
@@ -47,6 +48,7 @@ class DiceSessionManager:
         """Subscribes an SSE client to receive real-time session status events."""
         queue: asyncio.Queue = asyncio.Queue(maxsize=50)
         self._subscribers.add(queue)
+        self._queue_users[queue] = user_id
 
         # Send current status immediately upon connection, scoped to authenticated user
         current_dice_status = await settings_service.get_dice_status(check_live=False, user_id=user_id)
@@ -61,12 +63,21 @@ class DiceSessionManager:
     def unsubscribe(self, queue: asyncio.Queue):
         """Unsubscribes an SSE client."""
         self._subscribers.discard(queue)
+        self._queue_users.pop(queue, None)
 
     async def broadcast(self, event_type: str, data: Dict[str, Any]):
         """Broadcasts an event to all connected SSE clients."""
-        payload = json.dumps({"type": event_type, **data})
+        self._deliver(list(self._subscribers), json.dumps({"type": event_type, **data}))
+
+    async def notify_user(self, user_id: str, event_type: str, data: Dict[str, Any]):
+        """Sends an event only to that user's open tabs (usage, automation progress)."""
+        queues = [q for q in list(self._subscribers) if self._queue_users.get(q) == user_id]
+        if queues:
+            self._deliver(queues, json.dumps({"type": event_type, **data}))
+
+    def _deliver(self, queues: List[asyncio.Queue], payload: str):
         dead_queues = []
-        for q in list(self._subscribers):
+        for q in queues:
             try:
                 q.put_nowait(payload)
             except asyncio.QueueFull:
@@ -80,7 +91,7 @@ class DiceSessionManager:
                 dead_queues.append(q)
 
         for dq in dead_queues:
-            self._subscribers.discard(dq)
+            self.unsubscribe(dq)
 
     async def event_generator(self, user_id: Optional[str] = None) -> AsyncGenerator[str, None]:
         """Async generator streaming SSE events to HTTP clients."""

@@ -16,7 +16,8 @@ from app.schemas.billing import (
     UsageOut,
 )
 from app.services.billing import entitlement_service, plan_catalog, subscription_service
-from app.services.billing.entitlement_service import as_utc
+from app.services.billing.billing_repository import billing_repository
+from app.services.billing.entitlement_service import as_utc, valid_timezone
 from app.services.billing.stripe_gateway import construct_event
 from app.services.billing.webhook_service import handle_event
 
@@ -32,8 +33,15 @@ async def list_plans():
 
 
 @router.get("/status", response_model=BillingStatusOut)
-async def billing_status(user: dict = Depends(get_current_user)):
+async def billing_status(
+    user: dict = Depends(get_current_user),
+    x_timezone: str | None = Header(default=None),
+):
     user_id = str(user["_id"])
+    # The daily limit resets at the user's local midnight; remember their zone for background runs too
+    tz = valid_timezone(x_timezone)
+    if tz:
+        await billing_repository.set_timezone(user_id, tz)
     ent = await entitlement_service.get(user_id)
     sub = ent.account.get("subscription")
     return BillingStatusOut(

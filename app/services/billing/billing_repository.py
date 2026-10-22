@@ -10,6 +10,7 @@ from app.database import get_database
 
 # Webhook event ids are kept long enough to cover Stripe's 3-day retry window
 EVENT_RETENTION = timedelta(days=30)
+TIMEZONE_CHANGE_COOLDOWN = timedelta(hours=24)
 
 
 def _now() -> datetime:
@@ -47,6 +48,22 @@ class BillingRepository:
             }},
             upsert=True,
             return_document=ReturnDocument.AFTER,
+        )
+
+    async def set_timezone(self, user_id: str, tz: str) -> None:
+        """Stores the user's timezone for the daily reset. A change is accepted at most once per
+        TIMEZONE_CHANGE_COOLDOWN so switching zones can't be used to reset the daily count."""
+        now = _now()
+        await self.accounts.update_one(
+            {
+                "user_id": user_id,
+                "timezone": {"$ne": tz},
+                "$or": [
+                    {"timezone_changed_at": {"$exists": False}},
+                    {"timezone_changed_at": {"$lte": now - TIMEZONE_CHANGE_COOLDOWN}},
+                ],
+            },
+            {"$set": {"timezone": tz, "timezone_changed_at": now, "updated_at": now}},
         )
 
     async def find_by_customer(self, customer_id: str) -> Optional[Dict[str, Any]]:
