@@ -15,6 +15,7 @@ from app.services.cloudinary_service import resume_file_for
 from app.services.jd_service import jd_service
 from app.browser.application_browser import application_browser
 from app.services.execution_control import execution_control, NOT_CANCELLED
+from app.services.billing import entitlement_service
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +202,8 @@ class ApplicationService:
 
         resume = await self._resolve_resume(job, getattr(req, "user_id", None), req.resume_id)
         target_uid = str(getattr(req, "user_id", None) or "default")
+        if (req.mode or "PREPARE") == "APPLY" and target_uid != "default":
+            await entitlement_service.assert_can_apply(target_uid)
         app_id, app_data = await self._upsert_application(job, resume, target_uid, req.mode or "PREPARE")
 
         # Pre-check: Validate that candidate has active session tokens before launching browser
@@ -441,6 +444,8 @@ class ApplicationService:
         # Submission protection: allow submitting if READY, REVIEW, PREPARE, FAILED, or re-submitting APPLIED
         if app_doc["status"] not in ["READY", "REVIEW", "PREPARE", "FAILED", "APPLIED", "APPLYING", "CANCELLED"]:
             raise HTTPException(status_code=400, detail=f"Cannot submit application in '{app_doc['status']}' status")
+        if user_id and app_doc["status"] not in ("APPLIED", "APPLYING"):
+            await entitlement_service.assert_can_apply(user_id)
 
         # Fetch associated resume and user profile
         resume_id = app_doc.get("resume_id")

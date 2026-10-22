@@ -24,4 +24,21 @@ services:
       - key: SESSION_ENCRYPTION_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: "*"
+        value: "*"      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_PLAN_CACHE_SECONDS
+        value: "300"
+      - key: FRONTEND_URL
+        sync: false
+      - key: TRIAL_DAYS
+        value: "7"
+      - key: TRIAL_APPLICATION_LIMIT
+        value: "25"
+      - key: TRIAL_SEARCH_PROFILE_LIMIT
+        value: "1"
+      - key: BILLING_TIMEZONE
+        value: America/New_York

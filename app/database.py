@@ -107,6 +107,14 @@ async def connect_db():
     except Exception as e:
         print(f"[DB] Failed to ensure automation indexes: {e}")
 
+    # Billing: one account per user, webhook idempotency, and per-user usage counts
+    try:
+        from app.services.billing import billing_repository
+        await billing_repository.ensure_indexes()
+        await db_instance.db.applications.create_index([("user_id", 1), ("status", 1), ("applied_at", -1)])
+    except Exception as e:
+        print(f"[DB] Failed to ensure billing indexes: {e}")
+
 async def close_db():
     if db_instance.client:
         db_instance.client.close()

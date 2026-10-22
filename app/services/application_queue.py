@@ -13,6 +13,7 @@ from app.services.settings_service import settings_service
 from app.services.matching_service import matching_service, user_resume_filter
 from app.services.jd_service import jd_service
 from app.services.execution_control import execution_control
+from app.services.billing import entitlement_service
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +236,9 @@ class ApplicationQueueManager:
                 "status": ApplicationState.SUBMITTED,
                 "message": "Job has already been submitted."
             }
+
+        if user_id and user_id != "default":
+            await entitlement_service.assert_can_apply(user_id)
 
         # Resolve resume
         resolved_resume_id = resume_id

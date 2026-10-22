@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Depends
+from app.services.billing import entitlement_service
 from app.schemas.application import (
     ApplicationCreate,
     ApplicationResponse,
@@ -44,6 +45,8 @@ async def queue_application(req: QueueApplicationRequest, user: dict = Depends(g
         )
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -91,6 +94,7 @@ async def get_application_status(app_id: str, user: dict = Depends(get_current_u
 async def retry_application(app_id: str, user: dict = Depends(get_current_user)):
     """Retries a failed or timed out application through the execution queue."""
     user_id = str(user["_id"])
+    await entitlement_service.assert_can_apply(user_id)
     try:
         return await application_queue_manager.enqueue_application(
             application_id=app_id,

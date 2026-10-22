@@ -4,12 +4,14 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
 from app.schemas.search_profile import SearchProfileCreate, SearchProfileUpdate, SearchProfileResponse
 from app.services.search_service import search_service
+from app.services.billing import entitlement_service
 
 router = APIRouter(prefix="/search-profiles", tags=["Search Profiles"])
 
 @router.post("", response_model=SearchProfileResponse)
 async def create_profile(profile: SearchProfileCreate, user: dict = Depends(get_current_user)):
     user_id = str(user["_id"])
+    await entitlement_service.assert_can_create_search_profile(user_id)
     return await search_service.create_profile(profile, user_id=user_id)
 
 @router.get("", response_model=List[SearchProfileResponse])

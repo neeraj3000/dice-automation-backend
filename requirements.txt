@@ -51,3 +51,5 @@ email-validator>=2.2.0
 google-auth>=2.34.0
 PyJWT>=2.9.0
 requests>=2.32.0
+stripe>=15.6,<17
+tzdata>=2024.1

@@ -38,6 +38,7 @@ from app.schemas.automation import (
     AutomationUpdate,
 )
 from app.services.matching_service import user_resume_filter
+from app.services.billing import PlanLimitError, entitlement_service
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +352,7 @@ class AutomationService:
 
         if not await get_database().resumes.find_one(user_resume_filter(user_id) or {"_id": None}):
             raise HTTPException(status_code=400, detail="Upload a resume before starting an automation.")
+        await entitlement_service.assert_can_apply(user_id)
         await self._check_dice_session(user_id)
 
         if self._start_lock is None:
@@ -749,6 +751,11 @@ class AutomationService:
             await self._pause_point(ctx)
             if ctx.end:
                 return ctx.end
+
+            try:
+                await entitlement_service.assert_can_apply(ctx.user_id)
+            except PlanLimitError as limit:
+                return AutomationRunStatus.COMPLETED, f"Plan limit reached: {limit.detail}"
 
             # The job may have been applied to (or queued) elsewhere since it was listed
             job = await jobs_col.find_one({"_id": job["_id"], "status": {"$in": ELIGIBLE_JOB_STATUSES}})

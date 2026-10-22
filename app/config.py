@@ -47,6 +47,27 @@ class Settings(BaseSettings):
     CLOUDINARY_URL: str = ""
     TEMP_RESUMES_DIR: Path = Path(__file__).resolve().parent.parent / "temp_resumes"
 
+    # Stripe billing: values come only from .env (no defaults), so a missing key fails at
+    # startup instead of silently running with a wrong value. Plans, prices and plan limits
+    # live in the Stripe dashboard (Product metadata), never in code.
+    STRIPE_SECRET_KEY: str
+    STRIPE_WEBHOOK_SECRET: str
+    STRIPE_PUBLISHABLE_KEY: str
+    STRIPE_PLAN_CACHE_SECONDS: int
+    FRONTEND_URL: str
+
+    # Free trial granted to every account on first use (no card required)
+    TRIAL_DAYS: int
+    TRIAL_APPLICATION_LIMIT: int
+    TRIAL_SEARCH_PROFILE_LIMIT: int
+
+    # Daily application allowances reset at midnight in this timezone
+    BILLING_TIMEZONE: str
+
+    @property
+    def stripe_enabled(self) -> bool:
+        return bool(self.STRIPE_SECRET_KEY)
+
     # Backward-compatible property accessors for lowercase names
     @property
     def jwt_secret(self) -> str:

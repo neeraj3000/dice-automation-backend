@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import connect_db, close_db, get_database
-from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards, avatar as avatar_api, automations
+from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards, avatar as avatar_api, automations, billing
 
 
 @asynccontextmanager
@@ -205,6 +205,7 @@ routers = [
     avatar_api.router,
     automations.router,
     automations.runs_router,
+    billing.router,
 ]
 
 # Include Routers at root (available directly at http://localhost:8000/)
