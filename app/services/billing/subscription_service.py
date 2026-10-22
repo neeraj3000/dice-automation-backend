@@ -123,6 +123,20 @@ class SubscriptionService:
         if session.get("subscription"):
             await self.sync_subscription(session["subscription"])
 
+    async def sync_customer(self, user: Dict[str, Any]) -> None:
+        """Re-reads the user's subscription from Stripe; called on return from the Customer Portal
+        so plan changes show immediately, even if the webhook is late or not delivered."""
+        account = await billing_repository.get_or_create(str(user["_id"]))
+        customer_id = account.get("stripe_customer_id")
+        if not customer_id:
+            return
+        page = as_dict(await get_stripe().v1.subscriptions.list_async({"customer": customer_id, "status": "all", "limit": 10}))
+        subs = page.get("data") or []
+        # Prefer the live subscription; otherwise the most recent one (e.g. just cancelled)
+        sub = next((s for s in subs if is_entitled(s)), subs[0] if subs else None)
+        if sub:
+            await self.sync_subscription(sub["id"])
+
     async def list_invoices(self, user: Dict[str, Any], limit: int = 24) -> List[Dict[str, Any]]:
         account = await billing_repository.get_or_create(str(user["_id"]))
         customer_id = account.get("stripe_customer_id")
@@ -163,7 +177,7 @@ class SubscriptionService:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No billing account yet. Choose a plan first.")
         session = as_dict(await get_stripe().v1.billing_portal.sessions.create_async({
             "customer": account["stripe_customer_id"],
-            "return_url": _billing_url(),
+            "return_url": _billing_url("?portal=return"),
         }))
         return session["url"]
 

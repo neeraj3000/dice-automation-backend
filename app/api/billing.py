@@ -72,7 +72,12 @@ async def confirm_checkout_session(body: CheckoutConfirmIn, user: dict = Depends
     await subscription_service.confirm_checkout_session(user, body.session_id)
 
 
-@router.post("/portal-session", response_model=RedirectOut, dependencies=[limiter])
+@router.post("/sync", status_code=204, dependencies=[limiter])
+async def sync_subscription(user: dict = Depends(get_current_user)):
+    await subscription_service.sync_customer(user)
+
+
+@router.post("/portal-session",response_model=RedirectOut, dependencies=[limiter])
 async def create_portal_session(user: dict = Depends(get_current_user)):
     return RedirectOut(url=await subscription_service.create_portal_session(user))
 
