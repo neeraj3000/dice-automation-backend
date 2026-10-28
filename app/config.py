@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_MB: int = 20
     ALLOWED_EXTENSIONS: list[str] = [".pdf", ".docx"]
 
+    # Dynamic form interpretation engine
+    FORM_INTERPRETATION_LLM_ENABLED: bool = False
+    FORM_INTERPRETATION_MODEL: str = "gpt-4o-mini"
+    FORM_INTERPRETATION_MAX_TOKENS: int = 800
+    FORM_INTERPRETATION_TIMEOUT_SECONDS: float = 8.0
+    FORM_INTERPRETATION_BUDGET_PER_APP: int = 3
+    FORM_INTERPRETATION_CONFIDENCE_THRESHOLD: float = 0.8
+
     # Authentication & JWT (from bench-sales-backend)
     JWT_SECRET: str = "dice-auto-apply-default-jwt-secret-key-32bytes-min"
     JWT_ALGORITHM: str = "HS256"

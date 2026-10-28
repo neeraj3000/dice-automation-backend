@@ -294,7 +294,10 @@ class ApplicationBrowser:
         profile_id: str = "default",
         status_callback: Optional[Any] = None,
         should_close_page: Optional[bool] = None,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        preview_mode: bool = False,
+        resume_skills: Optional[List[str]] = None,
+        target_role: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Automates navigating to the Dice job application, filling personal info,
@@ -634,6 +637,31 @@ class ApplicationBrowser:
                 answered_count = await self._answer_screener_questions(page, user_profile)
                 if answered_count > 0:
                     progress_steps.append(f"Auto-answered {answered_count} screener questions")
+
+                # D2. Dynamic Form Engine (Layer A-E integration)
+                from app.services.form_engine import form_engine_service
+                form_step_res = await form_engine_service.process_form_step(
+                    page=page,
+                    user_profile=user_profile,
+                    resume_skills=resume_skills,
+                    target_role=target_role,
+                    user_id=user_id or profile_id,
+                    preview_mode=preview_mode,
+                )
+                if form_step_res.get("filled_count", 0) > 0:
+                    progress_steps.append(f"Dynamic form engine populated {form_step_res['filled_count']} field(s)")
+
+                if preview_mode:
+                    progress_steps.append("Preview mode: Form evaluated without advancing or submitting.")
+                    return {
+                        "success": True,
+                        "status": "PREVIEW",
+                        "progress_steps": progress_steps,
+                        "unanswered_questions": form_step_res.get("unanswered_questions", []),
+                        "preview_report": form_step_res.get("preview_report", []),
+                        "metrics": form_step_res.get("metrics"),
+                        "failure_reason": None,
+                    }
 
                 # E. Advance to Next Step
                 next_btn = page.locator('button').filter(has_text=re.compile(r"^Next$|^Continue$|^Next Step$|^Review Application$", re.I)).first

@@ -212,6 +212,13 @@ class DiceBoard(JobBoard):
                 await self._attach_resume(page, resume_path)
                 await self._clear_cover_letter(page)
                 await self._answer_questions(page, profile, answers)
+                try:
+                    from app.services.form_engine import form_engine_service
+                    from app.schemas.user_profile import UserProfileSchema
+                    user_prof = UserProfileSchema(**profile) if isinstance(profile, dict) else profile
+                    await form_engine_service.process_form_step(page=page, user_profile=user_prof)
+                except Exception as fe_err:
+                    log.debug("Form engine step notice in DiceBoard: %s", fe_err)
 
                 button = await self._primary_button(page)
                 if not button:
