@@ -57,9 +57,9 @@ class Settings(BaseSettings):
     FRONTEND_URL: str
 
     # Free trial granted to every account on first use (no card required)
-    TRIAL_DAYS: int
-    TRIAL_APPLICATION_LIMIT: int
-    TRIAL_SEARCH_PROFILE_LIMIT: int
+    TRIAL_DAYS: int = 7
+    TRIAL_APPLICATION_LIMIT: int = 25
+    TRIAL_SEARCH_PROFILE_LIMIT: int = 1
 
     # Daily application allowances reset at midnight in this timezone
     BILLING_TIMEZONE: str
