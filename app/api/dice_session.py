@@ -84,10 +84,8 @@ async def get_dice_session_status(
             last_ver = session.last_verified_at
             if last_ver.tzinfo is None:
                 last_ver = last_ver.replace(tzinfo=timezone.utc)
-            # When check_live is explicitly requested, always bypass the cache so the
-            # caller gets a real HTTP verification result, not a stale one.
-            # For background/passive checks without check_live, honour a 2-minute cache window.
-            if not check_live and (now_utc - last_ver).total_seconds() < 120:
+            # Ensure live check is performed only once per 15-minute cache window
+            if (now_utc - last_ver).total_seconds() < 900:
                 already_verified = True
 
         if not already_verified:

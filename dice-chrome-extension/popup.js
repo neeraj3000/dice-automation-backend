@@ -268,13 +268,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else {
         showApply2HireNotLoggedIn();
       }
-      // Always start disconnected so a stale chrome.storage cache never shows
-
-      // "Connected" when the real Dice session has expired. The live backend check
-
-      // (loadSessionStatus below) will update the UI once it resolves.
-
-      showDiceDisconnected();
+      if (stored && stored.dice_session && stored.dice_session.connected) {
+        showDiceConnected(stored.dice_session);
+      } else {
+        showDiceDisconnected();
+      }
     });
   }
 
