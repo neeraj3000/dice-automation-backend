@@ -543,8 +543,10 @@ class PlaywrightManager:
         for attempt in range(2):
             try:
                 context = await self.get_context(profile_id=profile_id, headless=headless, user_id=user_id)
-                # Cleanup older zombie pages to prevent memory leaks
-                open_pages = [p for p in context.pages if not p.is_closed()]
+                # Cleanup older zombie pages to prevent memory leaks. Leased pages are in use
+                # (an automation searches and applies in parallel tabs), so never close those.
+                leased = self._leased.setdefault(profile_id, set())
+                open_pages = [p for p in context.pages if not p.is_closed() and p not in leased]
                 if len(open_pages) > 3:
                     for old_p in open_pages[:-2]:
                         try:
@@ -552,7 +554,6 @@ class PlaywrightManager:
                         except Exception:
                             pass
                 # Reuse the blank tab Chromium opens at launch instead of adding a second one
-                leased = self._leased.setdefault(profile_id, set())
                 page = next(
                     (p for p in context.pages if not p.is_closed() and p not in leased and p.url == "about:blank"),
                     None,

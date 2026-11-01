@@ -1040,9 +1040,20 @@ class SettingsService:
         verify_reason = "No candidate authentication tokens found"
 
         if extracted_email or extracted_candidate_id:
-            # Cryptographically verified active AWS Cognito token
-            is_connected = True
-            verify_reason = f"Active session (candidate: {extracted_email or resolved_username})"
+            # Cryptographically verified Cognito/Dice token - but ALSO check JWT expiry.
+            # Find the identity cookie and verify its exp claim before trusting it.
+            identity_jwt = next(
+                (c.get("value", "") for c in sanitized_cookies if c.get("name") == "identity"),
+                ""
+            )
+            from app.services.dice_session_restorer import is_jwt_token_expired
+            if identity_jwt and is_jwt_token_expired(identity_jwt) is True:
+                # JWT is expired: session is no longer valid even though email/ID are present
+                is_connected = False
+                verify_reason = "Session expired: candidate JWT token has expired. Please sign in to Dice again."
+            else:
+                is_connected = True
+                verify_reason = f"Active session (candidate: {extracted_email or resolved_username})"
         elif sanitized_cookies:
             verify_result = await self._verify_cookies_via_http(sanitized_cookies)
             is_connected = verify_result.get("is_connected", False)

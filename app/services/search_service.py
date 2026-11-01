@@ -1,5 +1,6 @@
+import asyncio
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Awaitable, Callable
 from bson import ObjectId
 from fastapi import HTTPException
 
@@ -15,6 +16,18 @@ from app.services.application_queue import application_queue_manager
 
 import logging
 logger = logging.getLogger(__name__)
+
+# Jobs matched against resumes in parallel after a search (each match is two LLM calls)
+MATCH_CONCURRENCY = 5
+
+
+async def _notify(on_progress: Optional[Callable[[str], Awaitable[Any]]], message: str):
+    if on_progress:
+        try:
+            await on_progress(message)
+        except Exception as e:
+            logger.debug(f"Search progress callback notice: {e}")
+
 
 def format_profile_doc(doc: Dict[str, Any]) -> SearchProfileResponse:
     data = sanitize_object_ids(dict(doc))
@@ -91,7 +104,9 @@ class SearchService:
         auto_queue: Optional[bool] = None,
         user_id: str = "default",
         browser_profile_id: str = "default",
-        max_results: Optional[int] = None
+        max_results: Optional[int] = None,
+        on_progress: Optional[Callable[[str], Awaitable[Any]]] = None,
+        fast: bool = False,
     ) -> Dict[str, Any]:
         if not ObjectId.is_valid(profile_id) or not user_id:
             raise HTTPException(status_code=400, detail="Invalid search profile ID or missing user")
@@ -119,8 +134,10 @@ class SearchService:
             experience_levels=profile.get("experience_levels"),
             max_results=max_jobs,
             profile_id=browser_profile_id,
-            user_id=user_id
+            user_id=user_id,
+            fast=fast,
         )
+        await _notify(on_progress, f"Dice returned {len(scraped_jobs)} result(s). Saving new jobs…")
 
         new_jobs_count = 0
         duplicate_count = 0
@@ -186,19 +203,26 @@ class SearchService:
                 new_jobs_count += 1
                 newly_saved_job_ids.append(str(ins.inserted_id))
 
-        # 4. Match against resumes
+        # 4. Match against resumes. Each job costs two LLM round trips, so run several at once:
+        # one at a time, a 100-job search spent many minutes here before anything was applied.
         if auto_match and newly_saved_job_ids:
-            for jid in newly_saved_job_ids:
-                try:
-                    job_record = await self.jobs_col.find_one({"_id": ObjectId(jid)})
-                    if job_record and not job_record.get("match_result"):
-                        jd_data = await jd_service.analyze_job_description(
-                            job_record.get("description_raw", ""),
-                            job_record.get("title", "")
-                        )
-                        await matching_service.match_job_against_all_resumes(jd_data, job_id=jid, user_id=user_id)
-                except Exception as me:
-                    logger.debug(f"Auto-matching notice for job {jid}: {me}")
+            await _notify(on_progress, f"{len(scraped_jobs)} result(s), {new_jobs_count} new. Matching new jobs to your resumes…")
+            sem = asyncio.Semaphore(MATCH_CONCURRENCY)
+
+            async def match_one(jid: str):
+                async with sem:
+                    try:
+                        job_record = await self.jobs_col.find_one({"_id": ObjectId(jid)})
+                        if job_record and not job_record.get("match_result"):
+                            jd_data = await jd_service.analyze_job_description(
+                                job_record.get("description_raw", ""),
+                                job_record.get("title", "")
+                            )
+                            await matching_service.match_job_against_all_resumes(jd_data, job_id=jid, user_id=user_id)
+                    except Exception as me:
+                        logger.debug(f"Auto-matching notice for job {jid}: {me}")
+
+            await asyncio.gather(*(match_one(jid) for jid in newly_saved_job_ids))
 
         # 5. Queue applications (if requested or enabled on profile)
         should_queue = auto_queue

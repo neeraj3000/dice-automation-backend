@@ -1,4 +1,5 @@
 import re
+import asyncio
 import logging
 from typing import Dict, Any, List
 from app.config import settings
@@ -7,6 +8,9 @@ from app.services.llm_service import llm_service
 from app.services.parser_service import COMMON_ROLES, SKILL_KEYWORDS
 
 logger = logging.getLogger(__name__)
+
+# Falls back to the heuristic extractor rather than holding up a search or an application
+JD_ANALYSIS_TIMEOUT_SECONDS = 18.0
 
 class JDService:
     async def analyze_job_description(self, jd_text: str, title_hint: str = "") -> JDStructuredData:
@@ -24,14 +28,17 @@ CRITICAL: Extract accurately without inventing qualifications not stated in the 
 Return JSON matching the schema.
 """
             try:
-                response = await client.beta.chat.completions.parse(
-                    model=settings.OPENAI_MODEL,
-                    messages=[
-                        {"role": "system", "content": "You extract structured requirements from technical job descriptions."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format=JDStructuredData,
-                    temperature=0.1
+                response = await asyncio.wait_for(
+                    client.beta.chat.completions.parse(
+                        model=settings.OPENAI_MODEL,
+                        messages=[
+                            {"role": "system", "content": "You extract structured requirements from technical job descriptions."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        response_format=JDStructuredData,
+                        temperature=0.1
+                    ),
+                    timeout=JD_ANALYSIS_TIMEOUT_SECONDS,
                 )
                 parsed = response.choices[0].message.parsed
                 if not parsed.role:

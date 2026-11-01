@@ -23,6 +23,7 @@ import app.services.automation_service as automation_module
 from app.main import app
 from app.database import close_db, connect_db, get_database
 from app.services.automation_service import automation_service
+from app.services.billing import entitlement_service
 
 USER = "test_automation_user"
 OTHER_USER = "test_automation_other"
@@ -58,6 +59,8 @@ async def setup_env(monkeypatch, tmp_path):
     monkeypatch.setattr(automation_module, "COOLDOWN_SECONDS", 0)
     monkeypatch.setattr(automation_module, "WATCH_INTERVAL_SECONDS", 0.05)
     monkeypatch.setattr(automation_service, "_check_dice_session", AsyncMock())
+    # Billing has its own tests; a stored trial expiring must not fail these
+    monkeypatch.setattr(entitlement_service, "assert_can_apply", AsyncMock())
     monkeypatch.setattr("app.browser.playwright_manager.playwright_manager.close_context", AsyncMock())
     yield
     await _wait_for_runs()
@@ -118,6 +121,9 @@ def _browser(outcomes, hold=None):
             res["unanswered_questions"] = [{"question_text": "Please sign in", "field_name": "login_required", "options": [], "is_login_prompt": True}]
         if status == "FAILED":
             res["failure_reason"] = "Something broke"
+        if status == "UNCONFIRMED":
+            # Submit clicked, but Dice never showed the job as Applied
+            res.update(status="FAILED", failure_reason="Dice did not confirm", submit_unconfirmed=True)
         return res
     return fake
 
@@ -301,7 +307,7 @@ async def test_searches_deeper_until_nothing_new_then_completes():
     resume = await db.resumes.find_one({"user_id": USER})
     sizes = []
 
-    async def fake_search(profile_id, auto_match=True, auto_queue=None, user_id="default", browser_profile_id="default", max_results=None):
+    async def fake_search(profile_id, auto_match=True, auto_queue=None, user_id="default", browser_profile_id="default", max_results=None, **kw):
         sizes.append(max_results)
         # Rounds 1 and 2 each surface one new job; round 3 finds nothing new
         if len(sizes) > 2:
@@ -477,3 +483,171 @@ async def test_headless_follows_each_users_own_setting(monkeypatch):
         assert await playwright_manager.resolve_headless("default", user_id=OTHER_USER) is True
     finally:
         await db.settings.delete_many({"user_id": {"$in": [USER, OTHER_USER]}})
+
+
+@pytest.mark.anyio
+async def test_dice_refusing_submits_ends_run_and_keeps_jobs_for_next_run():
+    """Three submits in a row that Dice never marks Applied: stop instead of burning every job."""
+    db = get_database()
+    automation_id, search = await _seed(["u1", "u2", "u3", "u4", "u5"], apply_limit=5)
+    outcomes = {"u1": "SUBMITTED", "u2": "UNCONFIRMED", "u3": "UNCONFIRMED", "u4": "UNCONFIRMED", "u5": "SUBMITTED"}
+
+    with patch("app.services.search_service.search_service.run_search", AsyncMock(return_value=search)), \
+         patch("app.services.application_service.application_browser.prepare_application", side_effect=_browser(outcomes)):
+        run = await automation_service.start_run(USER, automation_id)
+        await _wait_for_runs()
+
+    doc = await _run_doc(run.id)
+    assert doc["status"] == "FAILED"
+    assert "Dice stopped accepting applications" in doc["end_reason"]
+    assert doc["counters"]["submitted"] == 1 and doc["counters"]["failed"] == 3
+    # u5 was never tried
+    assert await db.applications.count_documents({"automation_run_id": ObjectId(run.id)}) == 4
+    jobs = {j["external_job_id"]: j["status"] async for j in db.jobs.find({"user_id": USER})}
+    assert jobs == {"u1": "APPLIED", "u2": "MATCHED", "u3": "MATCHED", "u4": "MATCHED", "u5": "MATCHED"}
+
+
+@pytest.mark.anyio
+async def test_unconfirmed_streak_resets_after_a_confirmed_submit():
+    automation_id, search = await _seed(["r1", "r2", "r3", "r4", "r5"], apply_limit=2)
+    outcomes = {"r1": "UNCONFIRMED", "r2": "UNCONFIRMED", "r3": "SUBMITTED", "r4": "UNCONFIRMED", "r5": "SUBMITTED"}
+
+    with patch("app.services.search_service.search_service.run_search", AsyncMock(return_value=search)), \
+         patch("app.services.application_service.application_browser.prepare_application", side_effect=_browser(outcomes)):
+        run = await automation_service.start_run(USER, automation_id)
+        await _wait_for_runs()
+
+    doc = await _run_doc(run.id)
+    assert doc["status"] == "COMPLETED"
+    assert doc["counters"]["submitted"] == 2 and doc["counters"]["failed"] == 3
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("apply_limit, n_profiles, first_size", [(70, 1, 40), (70, 7, 20), (5, 1, 20), (30, 2, 30)])
+async def test_first_search_round_stays_shallow(apply_limit, n_profiles, first_size):
+    """A big target must not make the first search scrape (and match) 140 jobs before applying."""
+    db = get_database()
+    automation_id, _ = await _seed([], apply_limit=apply_limit)
+    extra = [
+        (await db.search_profiles.insert_one({"user_id": USER, "name": f"P{i}", "keywords": ["x"]})).inserted_id
+        for i in range(n_profiles - 1)
+    ]
+    if extra:
+        await db.automations.update_one({"_id": ObjectId(automation_id)}, {"$push": {"search_profile_ids": {"$each": extra}}})
+    sizes = []
+
+    async def fake_search(profile_id, max_results=None, on_progress=None, **kw):
+        sizes.append(max_results)
+        await on_progress("Dice returned 0 result(s).")
+        return {"total_found": 0, "new_jobs_added": 0, "new_job_ids": []}
+
+    with patch("app.services.search_service.search_service.run_search", side_effect=fake_search):
+        run = await automation_service.start_run(USER, automation_id)
+        await _wait_for_runs()
+
+    assert sizes[:n_profiles] == [first_size] * n_profiles
+    doc = await _run_doc(run.id)
+    assert any(e["message"] == "“Test Profile”: Dice returned 0 result(s)." for e in doc["events"])
+
+
+async def _add_profile_with_job(automation_id, name, ext_id, resume_id):
+    db = get_database()
+    profile = await db.search_profiles.insert_one({"user_id": USER, "name": name, "keywords": ["x"]})
+    job = await db.jobs.insert_one({
+        "user_id": USER, "external_job_id": ext_id, "title": f"Job {ext_id}", "company": "Acme",
+        "application_url": f"https://www.dice.com/job-detail/{ext_id}", "search_profile_id": profile.inserted_id,
+        "status": "DISCOVERED", "match_result": {"recommended_resume_id": str(resume_id), "match_percentage": 50},
+    })
+    await db.automations.update_one({"_id": ObjectId(automation_id)}, {"$push": {"search_profile_ids": profile.inserted_id}})
+    return str(profile.inserted_id), str(job.inserted_id)
+
+
+@pytest.mark.anyio
+async def test_next_profile_is_searched_while_current_jobs_are_applied():
+    """Searching and applying overlap, so the applying side never waits on Dice's search."""
+    db = get_database()
+    automation_id, search = await _seed(["p1"], apply_limit=5)
+    resume = await db.resumes.find_one({"user_id": USER})
+    p2_id, p2_job = await _add_profile_with_job(automation_id, "Second", "p2", resume["_id"])
+    timeline = []
+    second_search_started = asyncio.Event()
+
+    async def fake_search(profile_id, **kw):
+        if profile_id == p2_id:
+            timeline.append("search2 start")
+            second_search_started.set()
+            await asyncio.sleep(0.3)
+            await db.jobs.update_one({"_id": ObjectId(p2_job)}, {"$set": {"status": "MATCHED"}})
+            return {"total_found": 1, "new_jobs_added": 1, "new_job_ids": [p2_job]}
+        return search
+
+    async def hold(ext_id, cb):
+        if ext_id == "p1":
+            timeline.append("apply1 start")
+            # Profile 2's search must already be running while p1 is being applied to
+            await asyncio.wait_for(second_search_started.wait(), 5)
+            timeline.append("apply1 end")
+
+    with patch("app.services.search_service.search_service.run_search", side_effect=fake_search), \
+         patch("app.services.application_service.application_browser.prepare_application",
+               side_effect=_browser({"p1": "SUBMITTED", "p2": "SUBMITTED"}, hold=hold)):
+        run = await automation_service.start_run(USER, automation_id)
+        await _wait_for_runs()
+
+    doc = await _run_doc(run.id)
+    assert doc["counters"]["submitted"] == 2
+    assert timeline.index("search2 start") < timeline.index("apply1 end")
+    assert any(e["message"].startswith("Applied to Job p1 at Acme (1/5) in ") for e in doc["events"])
+
+
+@pytest.mark.anyio
+async def test_jobs_found_earlier_are_applied_while_the_first_search_runs():
+    db = get_database()
+    automation_id, _ = await _seed(["b1"], apply_limit=1)  # b1: found by an earlier search
+    search_done = asyncio.Event()
+
+    async def slow_search(profile_id, **kw):
+        await asyncio.sleep(1.5)
+        search_done.set()
+        return {"total_found": 0, "new_jobs_added": 0, "new_job_ids": []}
+
+    applied_during_search = []
+
+    async def hold(ext_id, cb):
+        applied_during_search.append(not search_done.is_set())
+
+    with patch("app.services.search_service.search_service.run_search", side_effect=slow_search), \
+         patch("app.services.application_service.application_browser.prepare_application",
+               side_effect=_browser({"b1": "SUBMITTED"}, hold=hold)):
+        run = await automation_service.start_run(USER, automation_id)
+        await _wait_for_runs()
+
+    doc = await _run_doc(run.id)
+    assert doc["status"] == "COMPLETED" and doc["counters"]["submitted"] == 1
+    assert applied_during_search == [True]
+
+
+@pytest.mark.anyio
+async def test_application_finished_on_dice_is_recorded_even_if_timer_ends_right_then():
+    """Timer runs out after Dice accepted the job but before the outcome is saved: still counted."""
+    db = get_database()
+    automation_id, search = await _seed(["t1", "t2"])
+    submitted = asyncio.Event()
+
+    async def hold(ext_id, cb):
+        await cb("SUBMITTED")
+        submitted.set()
+        await asyncio.sleep(0.3)
+
+    with patch("app.services.search_service.search_service.run_search", AsyncMock(return_value=search)), \
+         patch("app.services.application_service.application_browser.prepare_application",
+               side_effect=_browser({"t1": "SUBMITTED", "t2": "SUBMITTED"}, hold=hold)):
+        run = await automation_service.start_run(USER, automation_id)
+        await asyncio.wait_for(submitted.wait(), 10)
+        automation_service._runs[run.id].ends_at = datetime.now(timezone.utc)
+        await _wait_for_runs()
+
+    doc = await _run_doc(run.id)
+    assert doc["status"] == "TIME_UP" and doc["counters"]["submitted"] == 1
+    statuses = [a["status"] for a in await db.applications.find({"automation_run_id": ObjectId(run.id)}).to_list(5)]
+    assert statuses == ["SUBMITTED"]

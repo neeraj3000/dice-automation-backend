@@ -16,7 +16,11 @@ class LLMService:
         if not settings.OPENAI_API_KEY:
             return None
         if not self._client:
-            self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            self._client = AsyncOpenAI(
+                api_key=settings.OPENAI_API_KEY,
+                timeout=settings.OPENAI_TIMEOUT_SECONDS,
+                max_retries=settings.OPENAI_MAX_RETRIES,
+            )
         return self._client
 
     async def parse_resume_metadata(self, text: str, file_name: str) -> ResumeParsedMetadata:

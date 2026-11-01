@@ -87,7 +87,7 @@ class DiceBrowser:
         easy_apply_mode: str,
         existing_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        # Mode can be 'EASY_ONLY', 'NON_EASY_ONLY', or 'ALL'
+        # Mode can be 'EASY_ONLY' or 'ALL'
         return await page.evaluate(r'''({ maxRes, mode, prevIds }) => {
             const results = [];
             const seenIds = new Set(prevIds || []);
@@ -202,9 +202,6 @@ class DiceBrowser:
                 // RESPECT USER'S EASY APPLY PREFERENCE STRICTLY
                 if (mode === 'EASY_ONLY' && !isEasyApply) {
                     continue; // Skip non-easy-apply jobs
-                }
-                if (mode === 'NON_EASY_ONLY' && isEasyApply) {
-                    continue; // Skip easy-apply jobs (User explicitly unchecked Easy Apply)
                 }
 
                 // 8. Already Applied Detection & Skipping
@@ -418,19 +415,27 @@ class DiceBrowser:
         experience_levels: Optional[List[str]] = None,
         max_results: int = 15,
         profile_id: str = "default",
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        fast: bool = False,
     ) -> List[Dict[str, Any]]:
+        """fast: for automations, which can only complete Dice's Easy Apply wizard. Dice filters
+        Easy Apply server-side, the per-keyword re-searches are skipped (the primary query already
+        ORs every keyword, so they only re-find the same jobs) and so is the viewing window."""
         page = await playwright_manager.get_new_page(profile_id=profile_id, user_id=user_id)
 
         clean_kws = [k.strip() for k in keywords if k and k.strip()]
         primary_query = self._build_query(clean_kws)
         first_keyword = clean_kws[0] if clean_kws else "Software Engineer"
 
-        # Determine mode string for JS extractor: 'EASY_ONLY', 'NON_EASY_ONLY', or 'ALL'
-        if easy_apply_only is True:
+        # Mode string for the JS extractor: 'EASY_ONLY' or 'ALL'. An unticked "Easy Apply only"
+        # means every apply type; it used to mean "only non-Easy-Apply", which hid every job
+        # an automation can actually submit.
+        if fast:
+            easy_apply_only = True
+            # The URL filter already did it; a card-markup change must not drop every result
+            easy_apply_mode = 'ALL'
+        elif easy_apply_only is True:
             easy_apply_mode = 'EASY_ONLY'
-        elif easy_apply_only is False:
-            easy_apply_mode = 'NON_EASY_ONLY'
         else:
             easy_apply_mode = 'ALL'
 
@@ -509,7 +514,7 @@ class DiceBrowser:
 
             # Fallback 3: If still fewer than max_results and multiple keywords exist,
             # sequentially query individual keywords to accumulate jobs across all profile keywords
-            if len(jobs_collected) < max_results and len(clean_kws) > 1:
+            if not fast and len(jobs_collected) < max_results and len(clean_kws) > 1:
                 effective_posted = "SEVEN" if len(jobs_collected) == 0 else (posted_within if posted_within not in ["24h", "3d", "7d"] else {"24h": "ONE", "3d": "THREE", "7d": "SEVEN"}.get(posted_within, "THREE"))
                 seen_ids = {j["external_job_id"] for j in jobs_collected}
                 for kw in clean_kws:
@@ -549,8 +554,8 @@ class DiceBrowser:
             # When the user is watching in non-headless mode, hold the browser open for ~7 seconds
             # so the user can inspect the scraped jobs, view the search results, and observe the automation.
             try:
-                if not playwright_manager.is_context_headless(profile_id):
-                    mode_label = "Easy Apply only" if easy_apply_mode == "EASY_ONLY" else ("Non-Easy Apply only" if easy_apply_mode == "NON_EASY_ONLY" else "All apply types")
+                if not fast and not playwright_manager.is_context_headless(profile_id):
+                    mode_label = "Easy Apply only" if easy_apply_mode == "EASY_ONLY" else "All apply types"
                     await page.evaluate(r'''({ count, mode, kws }) => {
                         const existing = document.getElementById('dice-automation-hud');
                         if (existing) existing.remove();

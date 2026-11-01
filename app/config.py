@@ -27,6 +27,9 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
+    # Per-request cap; the SDK default (600 s x 2 retries) can stall an automation for half an hour
+    OPENAI_TIMEOUT_SECONDS: float = 30.0
+    OPENAI_MAX_RETRIES: int = 1
     MAX_FILE_SIZE_MB: int = 20
     ALLOWED_EXTENSIONS: list[str] = [".pdf", ".docx"]
 

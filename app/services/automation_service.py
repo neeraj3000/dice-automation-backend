@@ -47,6 +47,9 @@ MAX_CONCURRENT_RUNS = int(os.environ.get("AUTOMATION_MAX_CONCURRENT_RUNS", "2"))
 # Pause between applications, matching the Jobs page batch apply, so Dice isn't hammered
 COOLDOWN_SECONDS = float(os.environ.get("AUTOMATION_COOLDOWN_SECONDS", "10"))
 SUBMIT_GRACE_SECONDS = 30
+# Steps an end request waits for (up to the grace period): submitting, and saving the outcome of
+# an application that already finished, so a job Dice accepted is never left unrecorded
+GRACE_STEPS = {"SUBMITTING", "SUBMITTED", "RECORDING"}
 # A paused run still holds the user's single run slot, so it can't stay paused forever
 MAX_PAUSE_SECONDS = 60 * 60
 WATCH_INTERVAL_SECONDS = 2.0
@@ -59,6 +62,14 @@ MAX_CANDIDATE_JOBS = 200
 # Results fetched per profile per search round; independent of the user's manual-search setting
 MIN_SCRAPE_PER_PROFILE = 20
 MAX_SCRAPE_PER_PROFILE = 200
+# The first round stays shallow so applying starts within minutes; later rounds go deeper.
+# Sizing it from the target alone (70 -> 140 per profile) spent 20+ minutes on one search.
+FIRST_ROUND_MAX_SCRAPE = 40
+# Submits in a row that Dice clicked through but never showed as Applied: Dice is refusing
+# applications (throttling / account limit), so stop rather than burn every job until the timer
+MAX_UNCONFIRMED_STREAK = 3
+# How long to wait for a search before applying to already-found jobs in the meantime
+SEARCH_HEAD_START_SECONDS = 1.0
 
 # Jobs that were found/matched but never queued, applied, failed or sent for review
 ELIGIBLE_JOB_STATUSES = ["DISCOVERED", "ANALYZED", "MATCHED"]
@@ -71,6 +82,11 @@ READY_REVIEW_TEXT = (
     "Open it from Applications and finish the application manually."
 )
 LOGIN_LOST_REASON = "Dice login expired. Reconnect your Dice account, then start the automation again."
+UNCONFIRMED_STREAK_REASON = (
+    "Dice stopped accepting applications: the last {n} submits went through the form but Dice never "
+    "marked the jobs as Applied. Dice may be limiting applications on your account for now. "
+    "Those jobs were kept for the next run. Try again later, and check one of them on Dice."
+)
 
 
 def _utcnow() -> datetime:
@@ -117,6 +133,8 @@ class _RunContext:
     submitted: int = 0
     attempts: int = 0
     attempted: Set[ObjectId] = field(default_factory=set)
+    # Jobs of the current run of consecutive unconfirmed submits
+    unconfirmed_streak: List[ObjectId] = field(default_factory=list)
     # Pause: requested by the user, takes effect between jobs; the timer is frozen while paused
     pause_requested: bool = False
     paused_at: Optional[datetime] = None
@@ -534,7 +552,7 @@ class AutomationService:
 
                 if ctx.end and not ctx.cancel_sent:
                     in_grace = (
-                        ctx.step == "SUBMITTING"
+                        ctx.step in GRACE_STEPS
                         and (now - ctx.end_requested_at).total_seconds() < SUBMIT_GRACE_SECONDS
                     )
                     if not in_grace:
@@ -623,7 +641,9 @@ class AutomationService:
             except ValueError:
                 pass  # finished in the meantime
 
-    async def _candidate_jobs(self, ctx: _RunContext, job_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    async def _candidate_jobs(
+        self, ctx: _RunContext, job_ids: Optional[List[str]] = None, limit: int = MAX_CANDIDATE_JOBS
+    ) -> List[Dict[str, Any]]:
         """Never-applied jobs, best match first: the given ids, or the backlog of the run's profiles."""
         query: Dict[str, Any] = {**_user_filter(ctx.user_id), "status": {"$in": ELIGIBLE_JOB_STATUSES}}
         id_filter: Dict[str, Any] = {"$nin": list(ctx.attempted)}
@@ -634,75 +654,127 @@ class AutomationService:
             query["search_profile_id"] = {"$in": profile_oids + [str(p) for p in profile_oids]}
         query["_id"] = id_filter
         cursor = get_database().jobs.find(query).sort([("match_result.match_percentage", -1), ("created_at", -1)])
-        return await cursor.to_list(MAX_CANDIDATE_JOBS)
+        return await cursor.to_list(limit)
 
-    async def _run_main(self, ctx: _RunContext) -> Tuple[str, str]:
+    def _start_search(self, ctx: _RunContext, profile: Dict[str, Any], size: int) -> asyncio.Task:
+        """Searches one profile in its own browser tab; the task's result is the search result,
+        or None if the search failed (already reported in the activity log)."""
         from app.services.search_service import search_service
 
+        name = profile.get("name", "Search profile")
+
+        async def on_progress(message: str):
+            await self._event(ctx, f"“{name}”: {message}")
+
+        async def run() -> Optional[Dict[str, Any]]:
+            await self._event(ctx, f"Searching Dice for “{name}”…")
+            try:
+                return await search_service.run_search(
+                    str(profile["_id"]), auto_match=True, auto_queue=False,
+                    user_id=ctx.user_id, browser_profile_id=ctx.user_id, max_results=size,
+                    on_progress=on_progress, fast=True,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                detail = getattr(e, "detail", None) or str(e) or e.__class__.__name__
+                await self._event(ctx, f"Search for “{name}” failed: {detail}", "warning")
+                return None
+
+        return asyncio.create_task(run())
+
+    async def _await_search(self, ctx: _RunContext, task: asyncio.Task, name: str) -> Tuple[Optional[Dict[str, Any]], bool, Optional[Tuple[str, str]]]:
+        """Waits for a search, applying to jobs found earlier in the meantime so the applying
+        side never idles on Dice's search. Returns (search result, applied anything, end)."""
+        applied_any = False
+        await asyncio.wait({task}, timeout=SEARCH_HEAD_START_SECONDS)
+        while not task.done():
+            await self._pause_point(ctx)
+            if ctx.end:
+                return None, applied_any, ctx.end
+            if ctx.submitted >= ctx.apply_limit:
+                return None, applied_any, (AutomationRunStatus.COMPLETED, f"Target reached: applied to {ctx.submitted} job(s).")
+            # One at a time: the search's fresh results take over as soon as they are in
+            backlog = await self._candidate_jobs(ctx, limit=1)
+            if not backlog:
+                ctx.step = "SEARCHING"
+                await self._set(ctx, phase="SCRAPING", current={"profile_name": name, "step": "SEARCHING"})
+                await asyncio.wait({task})
+                break
+            applied_any = True
+            ended = await self._apply_jobs(ctx, backlog, "Earlier jobs")
+            if ended:
+                return None, applied_any, ended
+        return task.result(), applied_any, None
+
+    async def _run_main(self, ctx: _RunContext) -> Tuple[str, str]:
         names = ", ".join(p.get("name", "") for p in ctx.profiles)
         await self._event(ctx, f"Automation started: {len(ctx.profiles)} profile(s) ({names}), target {ctx.apply_limit} application(s).")
 
         # Dice lists the newest jobs first, so a shallow search keeps returning jobs the user
         # already applied to. While target and time remain, search each profile again, deeper
         # each round, until a whole round turns up nothing new to apply to.
-        scrape_size = min(MAX_SCRAPE_PER_PROFILE, max(MIN_SCRAPE_PER_PROFILE, ctx.apply_limit * 2))
+        # Spread the target over the profiles: each one only needs its share of candidates
+        per_profile = -(-ctx.apply_limit * 2 // max(1, len(ctx.profiles)))
+        scrape_size = min(FIRST_ROUND_MAX_SCRAPE, max(MIN_SCRAPE_PER_PROFILE, per_profile))
         round_no = 0
-        while True:
-            round_no += 1
-            if round_no > 1:
-                await self._event(ctx, f"Searching deeper: up to {scrape_size} results per profile.")
-            found_new = False
+        search: Optional[asyncio.Task] = None
+        try:
+            while True:
+                round_no += 1
+                if round_no > 1:
+                    await self._event(ctx, f"Searching deeper: up to {scrape_size} results per profile.")
+                found_new = False
 
-            for profile in ctx.profiles:
                 await self._pause_point(ctx)
                 if ctx.end:
                     return ctx.end
+                search = self._start_search(ctx, ctx.profiles[0], scrape_size)
+                for i, profile in enumerate(ctx.profiles):
+                    name = profile.get("name", "Search profile")
+                    res, applied_any, ended = await self._await_search(ctx, search, name)
+                    found_new = found_new or applied_any
+                    if ended:
+                        return ended
+                    # Pipeline: the next profile is searched in another tab while this one's jobs are applied to
+                    search = (
+                        self._start_search(ctx, ctx.profiles[i + 1], scrape_size)
+                        if i + 1 < len(ctx.profiles) else None
+                    )
+                    if res is None:
+                        continue
+
+                    found = int(res.get("total_found", 0))
+                    new = int(res.get("new_jobs_added", 0))
+                    await self._set(ctx, inc={"scraped": new})
+                    await self._event(ctx, f"“{name}”: {found} result(s), {new} new.")
+                    jobs = await self._candidate_jobs(ctx, job_ids=res.get("new_job_ids") or [])
+                    found_new = found_new or bool(jobs)
+                    ended = await self._apply_jobs(ctx, jobs, name)
+                    if ended:
+                        return ended
+                    await self._pause_point(ctx)
+                    if ctx.end:
+                        return ctx.end
+                    if ctx.submitted >= ctx.apply_limit:
+                        return AutomationRunStatus.COMPLETED, f"Target reached: applied to {ctx.submitted} job(s)."
+
+                backlog = await self._candidate_jobs(ctx)
+                if backlog:
+                    found_new = True
+                    await self._event(ctx, f"Working through {len(backlog)} earlier job(s) from these profiles.")
+                    ended = await self._apply_jobs(ctx, backlog, "Earlier jobs")
+                    if ended:
+                        return ended
+
                 if ctx.submitted >= ctx.apply_limit:
                     return AutomationRunStatus.COMPLETED, f"Target reached: applied to {ctx.submitted} job(s)."
-                name = profile.get("name", "Search profile")
-                ctx.step = "SEARCHING"
-                await self._event(
-                    ctx, f"Searching Dice for “{name}”…",
-                    phase="SCRAPING", current={"profile_name": name, "step": "SEARCHING"},
-                )
-                try:
-                    res = await search_service.run_search(
-                        str(profile["_id"]), auto_match=True, auto_queue=False,
-                        user_id=ctx.user_id, browser_profile_id=ctx.user_id, max_results=scrape_size,
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    detail = getattr(e, "detail", None) or str(e) or e.__class__.__name__
-                    await self._event(ctx, f"Search for “{name}” failed: {detail}", "warning")
-                    continue
-
-                found = int(res.get("total_found", 0))
-                new = int(res.get("new_jobs_added", 0))
-                await self._set(ctx, inc={"scraped": new})
-                await self._event(ctx, f"“{name}”: {found} result(s), {new} new.")
-                jobs = await self._candidate_jobs(ctx, job_ids=res.get("new_job_ids") or [])
-                found_new = found_new or bool(jobs)
-                ended = await self._apply_jobs(ctx, jobs, name)
-                if ended:
-                    return ended
-
-            await self._pause_point(ctx)
-            if ctx.end:
-                return ctx.end
-            backlog = await self._candidate_jobs(ctx)
-            if backlog:
-                found_new = True
-                await self._event(ctx, f"Working through {len(backlog)} earlier job(s) from these profiles.")
-                ended = await self._apply_jobs(ctx, backlog, "Earlier jobs")
-                if ended:
-                    return ended
-
-            if ctx.submitted >= ctx.apply_limit:
-                return AutomationRunStatus.COMPLETED, f"Target reached: applied to {ctx.submitted} job(s)."
-            if not found_new or scrape_size >= MAX_SCRAPE_PER_PROFILE:
-                break
-            scrape_size = min(MAX_SCRAPE_PER_PROFILE, scrape_size * 2)
+                if not found_new or scrape_size >= MAX_SCRAPE_PER_PROFILE:
+                    break
+                scrape_size = min(MAX_SCRAPE_PER_PROFILE, scrape_size * 2)
+        finally:
+            if search and not search.done():
+                search.cancel()
 
         return AutomationRunStatus.COMPLETED, (
             f"No more new jobs on Dice for these search profiles. Applied to {ctx.submitted} job(s)."
@@ -748,6 +820,7 @@ class AutomationService:
 
         jobs_col = get_database().jobs
         for job in jobs:
+            ctx.step = None
             if ctx.end:
                 return ctx.end
             if ctx.submitted >= ctx.apply_limit:
@@ -798,6 +871,7 @@ class AutomationService:
                 ctx.step = state
                 await self._set(ctx, **{"current.step": state})
 
+            started = asyncio.get_running_loop().time()
             try:
                 app_id, res = await application_service.run_automated_application(job, ctx.user_id, ctx.run_id, on_step)
             except asyncio.CancelledError:
@@ -814,15 +888,20 @@ class AutomationService:
                 await self._event(ctx, f"Skipped {title}: {e}", "warning")
                 continue
             finally:
-                ctx.step = None
+                ctx.step = "RECORDING"
 
             outcome = (res or {}).get("status")
+            if (res or {}).get("submit_unconfirmed"):
+                ctx.unconfirmed_streak.append(job["_id"])
+            elif res is not None:
+                ctx.unconfirmed_streak.clear()
             if res is None:
                 await self._event(ctx, f"Skipped {title}: the application was stopped.", "warning")
             elif outcome in SUBMITTED_OUTCOMES:
                 ctx.submitted += 1
                 await self._set(ctx, inc={"submitted": 1})
-                await self._event(ctx, f"Applied to {title} at {company} ({ctx.submitted}/{ctx.apply_limit}).", "success")
+                took = int(asyncio.get_running_loop().time() - started)
+                await self._event(ctx, f"Applied to {title} at {company} ({ctx.submitted}/{ctx.apply_limit}) in {took}s.", "success")
             elif outcome in REVIEW_OUTCOMES:
                 await self._set(ctx, inc={"review": 1})
                 await self._event(ctx, f"{title} needs your input. Skipped and added to the Review Queue.", "warning")
@@ -844,7 +923,19 @@ class AutomationService:
                 await self._set(ctx, inc={"failed": 1})
                 reason = (res or {}).get("failure_reason") or outcome or "Application failed"
                 await self._event(ctx, f"Skipped {title}: {reason}", "warning")
+                if len(ctx.unconfirmed_streak) >= MAX_UNCONFIRMED_STREAK:
+                    return await self._end_unconfirmed_streak(ctx)
+        ctx.step = None
         return None
+
+    async def _end_unconfirmed_streak(self, ctx: _RunContext) -> Tuple[str, str]:
+        """Dice refused several submits in a row. Those jobs most likely weren't applied to, so put
+        them back in the eligible pool instead of leaving them FAILED (never retried)."""
+        await get_database().jobs.update_many(
+            {"_id": {"$in": ctx.unconfirmed_streak}, "status": "FAILED"},
+            {"$set": {"status": "MATCHED", "failure_reason": None, "updated_at": _utcnow()}},
+        )
+        return AutomationRunStatus.FAILED, UNCONFIRMED_STREAK_REASON.format(n=len(ctx.unconfirmed_streak))
 
 
 automation_service = AutomationService()

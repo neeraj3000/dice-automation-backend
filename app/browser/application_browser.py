@@ -237,6 +237,34 @@ class ApplicationBrowser:
             logger.debug(f"Could not re-verify applied state on job page: {e}")
         return None
 
+    @staticmethod
+    async def _own_popup(page) -> Optional[Any]:
+        """The newest open tab that `page` opened, or None."""
+        for other in reversed(page.context.pages):
+            if other is page or other.is_closed():
+                continue
+            try:
+                if await other.opener() is page:
+                    return other
+            except Exception:
+                continue
+        return None
+
+    async def _visible_alert_text(self, page) -> Optional[str]:
+        """Text of visible alerts/toasts on the page (Dice's error banners), or None."""
+        try:
+            texts = await page.evaluate(r'''() => Array.from(document.querySelectorAll(
+                    '[role="alert"], [role="alertdialog"], [aria-live="assertive"], [aria-live="polite"], '
+                    + '[class*="toast" i], [class*="error" i][class*="message" i]'))
+                .filter(e => e.offsetParent !== null)
+                .map(e => (e.innerText || '').replace(/\s+/g, ' ').trim())
+                .filter(t => t.length > 3)''')
+        except Exception as e:
+            logger.debug(f"Could not read page alerts: {e}")
+            return None
+        unique = list(dict.fromkeys(texts or []))
+        return " | ".join(unique)[:300] or None
+
     async def _refresh_session_cookies(self, context, user_id: Optional[str], profile_id: str) -> bool:
         """
         Re-injects the most recently synced Dice auth cookies into a (possibly long-lived)
@@ -498,9 +526,9 @@ class ApplicationBrowser:
                             raise
                         await page.wait_for_timeout(3000)
 
-                # Track active page if popup opened
-                if len(page.context.pages) > 1:
-                    page = page.context.pages[-1]
+                # Follow a popup only if this job page opened it: the context can also hold an
+                # automation's search tab, which must never be taken over
+                page = await self._own_popup(page) or page
 
                 # Check for CAPTCHA after clicking Apply
                 if await self._detect_captcha(page):
@@ -568,6 +596,9 @@ class ApplicationBrowser:
                         # Page-level confirmation (text/URL heuristics) is only a hint; it has
                         # produced false positives, so the job page is the source of truth.
                         page_confirmed = await self._verify_submission_confirmation(page)
+                        # Read before verification navigates away: when Dice refuses a submit
+                        # (e.g. throttling) this is the only place its reason is shown
+                        dice_message = None if page_confirmed else await self._visible_alert_text(page)
 
                         # Only look for validation errors while the form is still on screen: once
                         # Submit has gone through, generic page text ("required", error widgets)
@@ -611,12 +642,18 @@ class ApplicationBrowser:
                         # Neither verified nor blocked: don't claim success. FAILED (not REVIEW,
                         # which implies questions to answer); a retry detects an existing application.
                         progress_steps.append("Submit button was clicked, but Dice does not show the job as Applied yet")
+                        failure_reason = UNCONFIRMED_REASON
+                        if dice_message:
+                            progress_steps.append(f"Dice showed: {dice_message}")
+                            failure_reason = f"{UNCONFIRMED_REASON} Dice showed: “{dice_message}”"
                         return {
                             "success": False,
                             "status": "FAILED",
                             "progress_steps": progress_steps,
                             "unanswered_questions": [],
-                            "failure_reason": UNCONFIRMED_REASON
+                            "failure_reason": failure_reason,
+                            # Lets an automation notice Dice refusing submits in a row
+                            "submit_unconfirmed": True,
                         }
 
                 # B. Fill Personal Info
