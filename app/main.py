@@ -21,7 +21,7 @@ if sys.platform == "win32":
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.database import connect_db, close_db, get_database
+from app.database import connect_db, close_db, get_database, ensure_indexes
 from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards, avatar as avatar_api, automations, billing
 
 
@@ -61,6 +61,8 @@ async def lifespan(app: FastAPI):
     try:
         await connect_db()
         print("[Dice-Automation] Connected to MongoDB.")
+        await ensure_indexes()
+        print("[Dice-Automation] Production indexes verified.")
         # One-time migration: Purge legacy shared session cookies from MongoDB
         db = get_database()
         if db is not None:

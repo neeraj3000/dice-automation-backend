@@ -597,7 +597,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         const queryUid = auth.authenticated && auth.user && auth.user.id ? `?user_id=${auth.user.id}` : "";
-        const resp = await fetch(`${backendUrl}/api/dice/session/status${queryUid}`, {
+        const liveSep = queryUid ? "&" : "?";
+        const resp = await fetch(`${backendUrl}/api/dice/session/status${queryUid}${liveSep}check_live=true`, {
           method: "GET",
           headers,
         });

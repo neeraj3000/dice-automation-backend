@@ -335,49 +335,58 @@ class ApplicationRunner:
                 if not restored:
                     logger.warning(f"Could not restore full session credentials for profile: {user_id}")
 
-                # Step 4: Verify authentication
-                auth_res = await verify_dice_session(
-                    browser_context=context,
-                    session=dice_session,
-                    page=page,
-                    user_id=user_id,
-                    timeout_ms=15000
+                # Step 4: Verify authentication via lightweight HTTP (no browser navigation).
+                # Using verify_dice_session() (which navigates to /dashboard) per-job causes
+                # Dice anti-bot / Cloudflare triggers after ~50+ applications, falsely reporting
+                # LOGIN_REQUIRED even when the session is valid. HTTP-only check is fast, safe,
+                # and avoids accumulating open pages that degrade performance over long runs.
+                http_check = await settings_service._verify_cookies_via_http(
+                    dice_session.cookies or []
                 )
+                session_ok = http_check.get("is_connected", False)
 
-                if auth_res.get("state") == SessionState.SESSION_EXPIRED:
-                    final_status = ApplicationState.SESSION_EXPIRED
-                    progress_steps.append("Session verification failed: session expired.")
-                    await self._update_application_doc(
-                        application_id, job["_id"],
-                        status=final_status,
-                        progress_steps=progress_steps,
-                        failure_reason="Dice session expired.",
-                        retry_count=retry_count,
-                        max_retries=max_retries
+                if not session_ok:
+                    # HTTP check failed ? do ONE browser verification as a double-check to rule
+                    # out transient network issues before aborting the job.
+                    logger.warning(
+                        f"HTTP session check failed for job {job.get('_id')} "
+                        f"(user {user_id}). Running browser verification as fallback."
                     )
-                    return {
-                        "success": False,
-                        "status": final_status,
-                        "progress_steps": progress_steps,
-                        "failure_reason": "Dice session expired."
-                    }
-                elif auth_res.get("state") == SessionState.LOGIN_REQUIRED:
-                    final_status = ApplicationState.LOGIN_REQUIRED
-                    progress_steps.append("Session verification failed: login required.")
-                    await self._update_application_doc(
-                        application_id, job["_id"],
-                        status=final_status,
-                        progress_steps=progress_steps,
-                        failure_reason="Dice login required.",
-                        retry_count=retry_count,
-                        max_retries=max_retries
+                    auth_res = await verify_dice_session(
+                        browser_context=context,
+                        session=dice_session,
+                        page=page,
+                        user_id=user_id,
+                        timeout_ms=15000
                     )
-                    return {
-                        "success": False,
-                        "status": final_status,
-                        "progress_steps": progress_steps,
-                        "failure_reason": "Dice login required."
-                    }
+                    browser_state = auth_res.get("state")
+                    if browser_state in (SessionState.SESSION_EXPIRED, SessionState.LOGIN_REQUIRED):
+                        final_status = (
+                            ApplicationState.SESSION_EXPIRED
+                            if browser_state == SessionState.SESSION_EXPIRED
+                            else ApplicationState.LOGIN_REQUIRED
+                        )
+                        failure_reason = (
+                            "Dice session expired." if browser_state == SessionState.SESSION_EXPIRED
+                            else "Dice login required."
+                        )
+                        progress_steps.append(f"Session verification failed: {failure_reason}")
+                        await self._update_application_doc(
+                            application_id, job["_id"],
+                            status=final_status,
+                            progress_steps=progress_steps,
+                            failure_reason=failure_reason,
+                            retry_count=retry_count,
+                            max_retries=max_retries
+                        )
+                        return {
+                            "success": False,
+                            "status": final_status,
+                            "progress_steps": progress_steps,
+                            "failure_reason": failure_reason
+                        }
+                    # Browser check passed ? session is valid; continue.
+                    logger.info(f"Browser verification confirmed session is valid for user {user_id}.")
 
                 # Step 5 - 9: Open selected job, run workflow, upload resume, screener QA, detect result
                 target_url = job.get("application_url") or job.get("job_url", "")

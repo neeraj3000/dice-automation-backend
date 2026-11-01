@@ -405,12 +405,31 @@ class ApplicationService:
             if not ObjectId.is_valid(automation_run_id):
                 return []
             query["automation_run_id"] = ObjectId(automation_run_id)
+        # Fetch all applications in one shot
         cursor = self.apps_col.find(query).sort("created_at", -1)
+        docs = await cursor.to_list(length=None)
+
+        if not docs:
+            return []
+
+        # Batch-fetch all pending questions for all apps in a single query (eliminates N+1)
+        app_oids = [doc["_id"] for doc in docs]
+        q_cursor = self.answers_col.find({
+            "application_id": {"": app_oids},
+            "is_answered": False,
+        })
+        raw_qs = await q_cursor.to_list(length=None)
+
+        # Group questions by application_id
+        from collections import defaultdict
+        qs_by_app: Dict[Any, list] = defaultdict(list)
+        for q in raw_qs:
+            qs_by_app[q["application_id"]].append(q)
+
+        # Build responses
         apps = []
-        async for doc in cursor:
-            # fetch pending questions
-            q_cursor = self.answers_col.find({"application_id": doc["_id"], "is_answered": False})
-            qs = await q_cursor.to_list(10)
+        for doc in docs:
+            qs = qs_by_app.get(doc["_id"], [])
             apps.append(format_app_doc(doc, qs))
         return apps
 

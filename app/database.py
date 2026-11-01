@@ -115,6 +115,18 @@ async def connect_db():
     except Exception as e:
         print(f"[DB] Failed to ensure billing indexes: {e}")
 
+async def ensure_indexes():
+    """Create production-critical indexes. Safe to call at startup (idempotent)."""
+    db = get_database()
+    import asyncio
+    await asyncio.gather(
+        db.applications.create_index([("user_id", 1), ("created_at", -1)], name="app_user_created"),
+        db.applications.create_index([("user_id", 1), ("status", 1)], name="app_user_status"),
+        db.application_answers.create_index(
+            [("application_id", 1), ("is_answered", 1)], name="ans_app_answered"
+        ),
+    )
+
 async def close_db():
     if db_instance.client:
         db_instance.client.close()

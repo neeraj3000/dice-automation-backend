@@ -1,6 +1,16 @@
 // Apply2Hire - Session Sync Popup Script (Manifest V3)
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // CSP-compliant logo fallback (replaces the removed inline onerror handler)
+  const brandLogo = document.getElementById("brandLogo");
+  const brandFallback = document.getElementById("brandFallback");
+  if (brandLogo && brandFallback) {
+    brandLogo.addEventListener("error", () => {
+      brandLogo.style.display = "none";
+      brandFallback.style.display = "flex";
+    });
+  }
+
   // Navigation Tabs
   const tabConnectBtn = document.getElementById("tabConnectBtn");
   const tabSettingsBtn = document.getElementById("tabSettingsBtn");
@@ -258,11 +268,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else {
         showApply2HireNotLoggedIn();
       }
-      if (stored && stored.dice_session && stored.dice_session.connected) {
-        showDiceConnected(stored.dice_session);
-      } else {
-        showDiceDisconnected();
-      }
+      // Always start disconnected so a stale chrome.storage cache never shows
+
+      // "Connected" when the real Dice session has expired. The live backend check
+
+      // (loadSessionStatus below) will update the UI once it resolves.
+
+      showDiceDisconnected();
     });
   }
 

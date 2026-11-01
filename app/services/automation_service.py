@@ -345,7 +345,10 @@ class AutomationService:
     # ----- Runs: start / stop --------------------------------------------------
 
     async def _check_dice_session(self, user_id: str):
-        # Mirrors the pre-check in application_service.prepare_application
+        # Pre-flight check before any automation run.
+        # Validates both token presence/expiry AND performs a lightweight HTTP live-check
+        # so we catch Dice sessions that are structurally present but server-side invalidated
+        # BEFORE burning 50+ application attempts (which trigger browser-nav false positives).
         from app.services.session_store import get_session_store, _is_expired
         from app.services.dice_session_restorer import has_required_auth_tokens
         from app.services.settings_service import settings_service
@@ -356,8 +359,33 @@ class AutomationService:
         if not ok:
             local_sess = settings_service.get_local_session()
             ok = has_required_auth_tokens(local_sess)
+            sess = local_sess if ok else sess
         if not ok:
             raise HTTPException(status_code=400, detail="Connect your Dice account before starting an automation.")
+
+        # Safety: also do an HTTP live-check so a structurally-valid-but-server-expired
+        # session is caught here rather than mid-run. Log a warning but don't abort ?
+        # the session may still work; this just surfaces the risk early.
+        try:
+            live = await settings_service._verify_cookies_via_http(getattr(sess, "cookies", None) or [])
+            if not live.get("is_connected"):
+                logger.warning(
+                    f"Pre-flight HTTP session check for user {user_id} returned not-connected. "
+                    "The session cookies may be stale. Consider re-syncing via the extension."
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Your Dice session appears to have expired. "
+                        "Open the Dice Session & Board settings, click 'Check Status', "
+                        "and re-sync your session via the Chrome extension before starting the automation."
+                    )
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            # Network / unexpected error during live check ? log and allow the run to proceed
+            logger.warning(f"Pre-flight HTTP session live-check could not complete for user {user_id}: {e}")
 
     async def start_run(self, user_id: str, automation_id: str) -> AutomationRunResponse:
         automation = await self._get_owned(user_id, automation_id)
