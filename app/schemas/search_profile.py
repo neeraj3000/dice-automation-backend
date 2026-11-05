@@ -1,6 +1,16 @@
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Optional, Union
 from datetime import datetime
+
+MAX_PROFILE_RESUMES = 100
+
+
+def _clean_resume_ids(v):
+    if isinstance(v, list):
+        # Keep order, drop duplicates and blanks
+        return list(dict.fromkeys(str(x).strip() for x in v if str(x).strip()))
+    return v
+
 
 class SearchProfileBase(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -25,10 +35,18 @@ class SearchProfileBase(BaseModel):
     # Dice "Experience level"
     experience_levels: List[str] = [] # ENTRY_LEVEL, SENIOR, PRINCIPAL
     
+    # Resumes this profile may apply with; empty means the user's whole library
+    resume_ids: List[str] = Field(default_factory=list, max_length=MAX_PROFILE_RESUMES)
+
     # Legacy compatibility
     is_remote: bool = True
     job_type: str = "Full-time"
     is_active: bool = True
+
+    @field_validator("resume_ids", mode="before")
+    @classmethod
+    def clean_resume_ids(cls, v):
+        return [] if v is None else _clean_resume_ids(v)
 
     @field_validator("keywords", mode="before")
     @classmethod
@@ -77,9 +95,15 @@ class SearchProfileUpdate(BaseModel):
     easy_apply_only: Optional[bool] = None
     posted_within: Optional[str] = None
     experience_levels: Optional[List[str]] = None
+    resume_ids: Optional[List[str]] = Field(None, max_length=MAX_PROFILE_RESUMES)
     is_remote: Optional[bool] = None
     job_type: Optional[str] = None
     is_active: Optional[bool] = None
+
+    @field_validator("resume_ids", mode="before")
+    @classmethod
+    def clean_resume_ids(cls, v):
+        return _clean_resume_ids(v)
 
     @field_validator("keywords", mode="before")
     @classmethod

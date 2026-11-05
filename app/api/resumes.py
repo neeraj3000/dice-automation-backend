@@ -1,7 +1,7 @@
 from typing import List, Optional, Union, Any
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Depends
 from app.schemas.resume import ResumeResponse, ResumeUpdate
-from app.services.resume_service import resume_service
+from app.services.resume_service import DuplicateResumeError, resume_service
 from app.core.deps import get_current_user
 
 router = APIRouter(prefix="/resumes", tags=["Resumes"])
@@ -10,6 +10,7 @@ router = APIRouter(prefix="/resumes", tags=["Resumes"])
 async def upload_resumes(
     files: Optional[List[UploadFile]] = File(None),
     file: Optional[UploadFile] = File(None),
+    reject_duplicates: bool = Query(False, description="Answer 409 if the library already has this resume's content"),
     user: dict = Depends(get_current_user)
 ):
     user_id = str(user["_id"])
@@ -26,8 +27,10 @@ async def upload_resumes(
     errors = []
     for f in items_to_upload:
         try:
-            res = await resume_service.save_uploaded_resume(f, user_id=user_id)
+            res = await resume_service.save_uploaded_resume(f, user_id=user_id, reject_duplicates=reject_duplicates)
             results.append(res)
+        except DuplicateResumeError:
+            raise
         except Exception as e:
             errors.append(f"{f.filename}: {str(e)}")
 

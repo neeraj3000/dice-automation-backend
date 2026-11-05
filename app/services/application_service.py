@@ -10,7 +10,8 @@ from app.schemas.application import (
     ApplicationResponse, ApplicationAnswerSchema, ReviewItem, ApplicationCreate
 )
 from app.services.settings_service import settings_service
-from app.services.matching_service import matching_service, user_resume_filter
+from app.schemas.job import JDStructuredData
+from app.services.matching_service import matching_service, resume_pool_filter, user_resume_filter
 from app.services.cloudinary_service import resume_file_for
 from app.services.jd_service import jd_service
 from app.browser.application_browser import application_browser
@@ -111,44 +112,60 @@ class ApplicationService:
     def answers_col(self):
         return get_database().application_answers
 
-    async def _resolve_resume(self, job: Dict[str, Any], user_id: Optional[str], resume_id: Optional[str] = None) -> Dict[str, Any]:
-        """Picks the resume to apply with, only ever from the applying user's own library."""
-        owner_filter = user_resume_filter(user_id or job.get("user_id")) or {"_id": None}
+    async def _resolve_resume(
+        self,
+        job: Dict[str, Any],
+        user_id: Optional[str],
+        resume_id: Optional[str] = None,
+        allowed_resume_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Picks the resume to apply with, only ever from the applying user's own library and,
+        when allowed_resume_ids is non-empty, only from that selection."""
+        owner = user_id or job.get("user_id")
+        owner_filter = user_resume_filter(owner) or {"_id": None}
+        allowed = {str(r) for r in allowed_resume_ids or []}
+
+        async def load(candidate_id: Optional[str]) -> Optional[Dict[str, Any]]:
+            if not candidate_id or not ObjectId.is_valid(candidate_id) or (allowed and str(candidate_id) not in allowed):
+                return None
+            return await self.resumes_col.find_one({"_id": ObjectId(candidate_id), **owner_filter})
+
         if not resume_id:
             # Check if job already has recommended resume
             if job.get("match_result") and job["match_result"].get("recommended_resume_id"):
                 resume_id = job["match_result"]["recommended_resume_id"]
 
-        resume = None
-        if resume_id and ObjectId.is_valid(resume_id):
-            resume = await self.resumes_col.find_one({"_id": ObjectId(resume_id), **owner_filter})
+        resume = await load(resume_id)
 
-        # If no resume specified or the referenced resume was deleted/replaced, re-match against current active library
+        # If no resume specified, the referenced resume was deleted/replaced, or it is outside the
+        # selection (matched before the selection was set), re-match against the resumes in play
         if not resume:
-            # Run matching now against active resumes
-            jd_data = None
             jd_structured = job.get("description_structured")
-            if not jd_structured:
+            if jd_structured:
+                jd_data = JDStructuredData(**jd_structured)
+            else:
                 jd_data = await jd_service.analyze_job_description(job.get("description_raw", ""), job.get("title", ""))
-                jd_structured = jd_data.model_dump()
                 await self.jobs_col.update_one(
                     {"_id": job["_id"]},
-                    {"$set": {"description_structured": jd_structured}}
+                    {"$set": {"description_structured": jd_data.model_dump()}}
                 )
             match_res = await matching_service.match_job_against_all_resumes(
-                jd_data or await jd_service.analyze_job_description(job.get("description_raw", "")),
+                jd_data,
                 job_id=str(job["_id"]),
-                user_id=user_id or job.get("user_id"),
+                user_id=owner,
+                resume_ids=allowed_resume_ids,
             )
-            resume_id = match_res.recommended_resume_id
-            if resume_id and ObjectId.is_valid(resume_id):
-                resume = await self.resumes_col.find_one({"_id": ObjectId(resume_id), **owner_filter})
+            resume = await load(match_res.recommended_resume_id)
 
-        # If matching still couldn't resolve, fallback to any resume in the user's own library
+        # If matching still couldn't resolve, fallback to any resume still in play
         if not resume:
-            resume = await self.resumes_col.find_one(owner_filter)
+            resume = await self.resumes_col.find_one(resume_pool_filter(owner, allowed_resume_ids) or {"_id": None})
             if not resume:
-                raise HTTPException(status_code=400, detail="No matching resume found in library. Please upload a resume first.")
+                detail = (
+                    "The resumes selected for this search profile no longer exist. Edit the profile and pick a resume."
+                    if allowed else "No matching resume found in library. Please upload a resume first."
+                )
+                raise HTTPException(status_code=400, detail=detail)
         return resume
 
     async def _upsert_application(
@@ -305,13 +322,15 @@ class ApplicationService:
         user_id: str,
         automation_run_id: ObjectId,
         status_callback: Optional[Callable[[str], Any]] = None,
+        resume_ids: Optional[List[str]] = None,
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         """
         Applies to one job on behalf of an automation run and waits for the outcome.
         The run uses the user's own browser profile, and a lost Dice login is reported to the
-        automation instead of being queued as a review question.
+        automation instead of being queued as a review question. resume_ids limits the resumes
+        it may use to the selection on the job's search profile.
         """
-        resume = await self._resolve_resume(job, user_id)
+        resume = await self._resolve_resume(job, user_id, allowed_resume_ids=resume_ids)
         app_id, app_data = await self._upsert_application(
             job, resume, user_id, "APPLY", {"automation_run_id": automation_run_id}
         )

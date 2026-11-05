@@ -10,7 +10,7 @@ from app.schemas.search_profile import (
 )
 from app.browser.dice_browser import dice_browser
 from app.services.settings_service import settings_service
-from app.services.matching_service import matching_service
+from app.services.matching_service import matching_service, resume_pool_filter
 from app.services.jd_service import jd_service
 from app.services.application_queue import application_queue_manager
 
@@ -43,8 +43,20 @@ class SearchService:
     def jobs_col(self):
         return get_database().jobs
 
+    async def _owned_resume_ids(self, user_id: Optional[Any], resume_ids: List[str]) -> List[ObjectId]:
+        """Checks a profile's resume selection against the user's library, in the selected order."""
+        if not resume_ids:
+            return []
+        oids = [ObjectId(r) for r in resume_ids if ObjectId.is_valid(r)]
+        query = resume_pool_filter(user_id, oids)
+        found = set(await get_database().resumes.distinct("_id", query)) if query and oids else set()
+        if len(oids) != len(resume_ids) or len(found) != len(oids):
+            raise HTTPException(status_code=400, detail="One or more selected resumes no longer exist. Refresh the list and pick again.")
+        return oids
+
     async def create_profile(self, profile: SearchProfileCreate, user_id: Optional[Any] = "default") -> SearchProfileResponse:
         doc = profile.model_dump()
+        doc["resume_ids"] = await self._owned_resume_ids(user_id, doc["resume_ids"])
         now = datetime.now(timezone.utc)
         doc["created_at"] = now
         doc["updated_at"] = now
@@ -79,6 +91,10 @@ class SearchService:
         u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
         query = {"_id": ObjectId(profile_id), "user_id": {"$in": u_oids + [str(user_id)]}}
         data = update.model_dump(exclude_unset=True)
+        if data.get("resume_ids") is None:
+            data.pop("resume_ids", None)
+        else:
+            data["resume_ids"] = await self._owned_resume_ids(user_id, data["resume_ids"])
         if not data:
             return await self.get_profile_by_id(profile_id, user_id=user_id)
         data["updated_at"] = datetime.now(timezone.utc)
@@ -208,6 +224,7 @@ class SearchService:
         if auto_match and newly_saved_job_ids:
             await _notify(on_progress, f"{len(scraped_jobs)} result(s), {new_jobs_count} new. Matching new jobs to your resumes…")
             sem = asyncio.Semaphore(MATCH_CONCURRENCY)
+            resume_ids = [str(r) for r in profile.get("resume_ids") or []]
 
             async def match_one(jid: str):
                 async with sem:
@@ -218,7 +235,9 @@ class SearchService:
                                 job_record.get("description_raw", ""),
                                 job_record.get("title", "")
                             )
-                            await matching_service.match_job_against_all_resumes(jd_data, job_id=jid, user_id=user_id)
+                            await matching_service.match_job_against_all_resumes(
+                                jd_data, job_id=jid, user_id=user_id, resume_ids=resume_ids
+                            )
                     except Exception as me:
                         logger.debug(f"Auto-matching notice for job {jid}: {me}")
 

@@ -1,3 +1,5 @@
+import asyncio
+import hashlib
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +12,35 @@ from app.database import get_database, sanitize_object_ids
 from app.schemas.resume import ResumeResponse, ResumeUpdate, ResumeBrief
 from app.services.parser_service import extract_text
 from app.services.llm_service import llm_service
+
+DUPLICATE_FIELDS = {"display_name": 1, "file_name": 1, "target_role": 1, "cloudinary_url": 1}
+
+
+def resume_content_hash(raw_text: Optional[str], content: bytes = b"") -> str:
+    """Fingerprint of what a resume says, so a renamed or re-saved copy still matches. Files with
+    no readable text (scanned PDFs) fall back to their bytes."""
+    normalized = " ".join((raw_text or "").lower().split())
+    return hashlib.sha256(normalized.encode("utf-8") if normalized else content).hexdigest()
+
+
+class DuplicateResumeError(HTTPException):
+    """The upload has the same content as this resume already in the user's library."""
+
+    def __init__(self, doc: Dict[str, Any]):
+        super().__init__(
+            status_code=409,
+            detail={
+                "message": "This resume already exists in your library.",
+                "resume": {
+                    "id": str(doc["_id"]),
+                    "display_name": doc.get("display_name") or "",
+                    "file_name": doc.get("file_name") or "",
+                    "target_role": doc.get("target_role") or "",
+                    "cloudinary_url": doc.get("cloudinary_url"),
+                },
+            },
+        )
+
 
 def format_resume_doc(doc: Dict[str, Any], default_resume_id: Optional[str] = None) -> ResumeResponse:
     if not doc:
@@ -59,7 +90,31 @@ class ResumeService:
             raise HTTPException(status_code=502, detail="Failed to upload resume to Cloudinary.")
         return info
 
-    async def save_uploaded_resume(self, file: UploadFile, user_id: Optional[str] = None) -> ResumeResponse:
+    async def _find_duplicate(self, user_id: Optional[Any], content_hash: str) -> Optional[Dict[str, Any]]:
+        u_oids = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        owner = {"user_id": {"$in": u_oids + [str(user_id)]}}
+        doc = await self.collection.find_one({**owner, "content_hash": content_hash}, DUPLICATE_FIELDS)
+        if doc:
+            return doc
+
+        # Resumes from before hashes existed: fingerprint their stored text, once
+        match = None
+        backfill = []
+        unhashed = self.collection.find(
+            {**owner, "content_hash": {"$exists": False}, "raw_text": {"$nin": [None, ""]}},
+            {**DUPLICATE_FIELDS, "raw_text": 1},
+        )
+        async for legacy in unhashed:
+            legacy_hash = resume_content_hash(legacy["raw_text"])
+            backfill.append(self.collection.update_one({"_id": legacy["_id"]}, {"$set": {"content_hash": legacy_hash}}))
+            if legacy_hash == content_hash and match is None:
+                match = legacy
+        await asyncio.gather(*backfill)
+        return match
+
+    async def save_uploaded_resume(
+        self, file: UploadFile, user_id: Optional[str] = None, reject_duplicates: bool = False
+    ) -> ResumeResponse:
         original_name = file.filename or "unnamed_resume"
         ext = Path(original_name).suffix.lower()
         if ext not in settings.ALLOWED_EXTENSIONS:
@@ -82,6 +137,13 @@ class ResumeService:
 
         # Extract text from a short-lived temp copy; nothing is kept on local disk
         raw_text = await self._extract_text_from_bytes(content, target_name, ext)
+
+        # Before the costly steps: a duplicate should spend no LLM call or storage
+        content_hash = resume_content_hash(raw_text, content)
+        if reject_duplicates:
+            duplicate = await self._find_duplicate(user_id, content_hash)
+            if duplicate:
+                raise DuplicateResumeError(duplicate)
 
         # Extract metadata (LLM or Heuristic)
         metadata = await llm_service.parse_resume_metadata(raw_text, target_name)
@@ -109,6 +171,7 @@ class ResumeService:
             "experience_years": metadata.experience_years,
             "summary": metadata.summary,
             "raw_text": raw_text,
+            "content_hash": content_hash,
             "is_default": is_first,
             "custom_fields": {},
             "created_at": now,
@@ -259,6 +322,7 @@ class ResumeService:
             "experience_years": metadata.experience_years,
             "summary": metadata.summary,
             "raw_text": raw_text,
+            "content_hash": resume_content_hash(raw_text, content),
             "updated_at": now
         }
 

@@ -21,6 +21,15 @@ def user_resume_filter(user_id: Optional[Any]) -> Optional[Dict[str, Any]]:
     return {"user_id": {"$in": u_oids + [str(user_id)]}}
 
 
+def resume_pool_filter(user_id: Optional[Any], resume_ids: Optional[List[Any]] = None) -> Optional[Dict[str, Any]]:
+    """user_resume_filter narrowed to resume_ids. A non-empty selection never widens to the whole
+    library, even if none of its ids are valid; an empty one means the whole library."""
+    query = user_resume_filter(user_id)
+    if query is not None and resume_ids:
+        query["_id"] = {"$in": [ObjectId(str(r)) for r in resume_ids if ObjectId.is_valid(str(r))]}
+    return query
+
+
 class MatchingService:
     @property
     def resumes_col(self):
@@ -31,11 +40,16 @@ class MatchingService:
         return get_database().job_matches
 
     async def match_job_against_all_resumes(
-        self, jd: JDStructuredData, job_id: Optional[str] = None, user_id: Optional[str] = None
+        self,
+        jd: JDStructuredData,
+        job_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        resume_ids: Optional[List[str]] = None,
     ) -> JobMatchResult:
-        # 1. Fetch ONLY this user's resumes. Never fall back to other users' libraries.
+        # 1. Fetch ONLY this user's resumes (narrowed to resume_ids when given).
+        # Never fall back to other users' libraries.
         resumes: List[Dict[str, Any]] = []
-        query = user_resume_filter(user_id)
+        query = resume_pool_filter(user_id, resume_ids)
         docs = [d async for d in self.resumes_col.find(query)] if query else []
         for doc in docs:
             file_name = doc.get("file_name", "")

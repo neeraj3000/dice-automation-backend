@@ -37,7 +37,7 @@ from app.schemas.automation import (
     AutomationRunStatus,
     AutomationUpdate,
 )
-from app.services.matching_service import user_resume_filter
+from app.services.matching_service import resume_pool_filter, user_resume_filter
 from app.services.billing import PlanLimitError, entitlement_service
 from app.services.realtime import AUTOMATION_UPDATED, notify_user
 
@@ -133,6 +133,8 @@ class _RunContext:
     submitted: int = 0
     attempts: int = 0
     attempted: Set[ObjectId] = field(default_factory=set)
+    # Profile id -> {resume id: label} it may apply with, fixed at start; empty = whole library
+    profile_resumes: Dict[str, Dict[str, str]] = field(default_factory=dict)
     # Jobs of the current run of consecutive unconfirmed submits
     unconfirmed_streak: List[ObjectId] = field(default_factory=list)
     # Pause: requested by the user, takes effect between jobs; the timer is frozen while paused
@@ -359,6 +361,30 @@ class AutomationService:
         if not ok:
             raise HTTPException(status_code=400, detail="Connect your Dice account before starting an automation.")
 
+    async def _profile_resumes(self, user_id: str, profiles: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
+        """Each profile's selected resumes that still exist. A profile whose whole selection was
+        deleted blocks the start: widening it to the full library would apply with resumes the
+        user didn't pick."""
+        selected = list({str(r) for p in profiles for r in p.get("resume_ids") or []})
+        existing: Dict[str, str] = {}
+        if selected:
+            query = resume_pool_filter(user_id, selected) or {"_id": None}
+            existing = {
+                str(r["_id"]): r.get("target_role") or r.get("display_name") or r.get("file_name") or "Resume"
+                async for r in get_database().resumes.find(query, {"target_role": 1, "display_name": 1, "file_name": 1})
+            }
+        result: Dict[str, Dict[str, str]] = {}
+        for profile in profiles:
+            ids = [str(r) for r in profile.get("resume_ids") or []]
+            kept = {r: existing[r] for r in ids if r in existing}
+            if ids and not kept:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"The resumes selected for “{profile.get('name', 'Search profile')}” were deleted. Edit the search profile and pick another resume.",
+                )
+            result[str(profile["_id"])] = kept
+        return result
+
     async def start_run(self, user_id: str, automation_id: str) -> AutomationRunResponse:
         automation = await self._get_owned(user_id, automation_id)
         profile_oids = automation.get("search_profile_ids", [])
@@ -372,6 +398,7 @@ class AutomationService:
 
         if not await get_database().resumes.find_one(user_resume_filter(user_id) or {"_id": None}):
             raise HTTPException(status_code=400, detail="Upload a resume before starting an automation.")
+        profile_resumes = await self._profile_resumes(user_id, profiles)
         await entitlement_service.assert_can_apply(user_id)
         await self._check_dice_session(user_id)
 
@@ -428,6 +455,7 @@ class AutomationService:
             profiles=profiles,
             apply_limit=apply_limit,
             ends_at=ends_at,
+            profile_resumes=profile_resumes,
         )
         self._runs[str(ctx.run_id)] = ctx
         task = asyncio.create_task(self._execute(ctx))
@@ -710,6 +738,10 @@ class AutomationService:
     async def _run_main(self, ctx: _RunContext) -> Tuple[str, str]:
         names = ", ".join(p.get("name", "") for p in ctx.profiles)
         await self._event(ctx, f"Automation started: {len(ctx.profiles)} profile(s) ({names}), target {ctx.apply_limit} application(s).")
+        for profile in ctx.profiles:
+            resume_names = ctx.profile_resumes.get(str(profile["_id"]))
+            if resume_names:
+                await self._event(ctx, f"“{profile.get('name', '')}” applies only with: {', '.join(resume_names.values())}.")
 
         # Dice lists the newest jobs first, so a shallow search keeps returning jobs the user
         # already applied to. While target and time remain, search each profile again, deeper
@@ -873,7 +905,10 @@ class AutomationService:
 
             started = asyncio.get_running_loop().time()
             try:
-                app_id, res = await application_service.run_automated_application(job, ctx.user_id, ctx.run_id, on_step)
+                app_id, res = await application_service.run_automated_application(
+                    job, ctx.user_id, ctx.run_id, on_step,
+                    resume_ids=list(ctx.profile_resumes.get(str(job.get("search_profile_id")), ())),
+                )
             except asyncio.CancelledError:
                 raise
             except HTTPException as he:
