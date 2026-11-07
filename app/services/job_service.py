@@ -1,6 +1,7 @@
 import re
 import hashlib
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from fastapi import HTTPException
@@ -10,6 +11,21 @@ from app.schemas.job import JobResponse, JobUpdate, DirectMatchRequest, JobMatch
 from app.services.jd_service import jd_service
 from app.services.matching_service import matching_service
 from app.browser.dice_browser import dice_browser
+
+logger = logging.getLogger(__name__)
+
+# Statuses that mean the job has never been successfully applied to and is safe to expire.
+# APPLIED, SKIPPED, and QUEUED are intentionally excluded — they represent completed or
+# in-progress work that must never be silently deleted.
+STALE_ELIGIBLE_STATUSES = ["DISCOVERED", "ANALYZED", "MATCHED", "LOW_MATCH", "FAILED", "REVIEW"]
+
+# Default expiry window for fetched/scraped jobs that have not progressed to APPLIED.
+JOB_STALE_HOURS = 72
+
+# Minimum resume match percentage required to attempt automated application.
+# Jobs that score below this threshold are marked LOW_MATCH after matching and
+# are never picked up by the automation engine.
+MIN_MATCH_SCORE = 70
 
 def format_job_doc(doc: Dict[str, Any]) -> JobResponse:
     data = sanitize_object_ids(dict(doc))
@@ -32,9 +48,16 @@ def format_job_doc(doc: Dict[str, Any]) -> JobResponse:
         data["is_easy_apply"] = bool(data.get("easy_apply", False))
     if "board" not in data:
         data["board"] = "dice"
-    if not data.get("created_at"):
+    if data.get("created_at"):
+        if isinstance(data["created_at"], datetime) and data["created_at"].tzinfo is None:
+            data["created_at"] = data["created_at"].replace(tzinfo=timezone.utc)
+    else:
         data["created_at"] = datetime.now(timezone.utc)
-    if not data.get("updated_at"):
+
+    if data.get("updated_at"):
+        if isinstance(data["updated_at"], datetime) and data["updated_at"].tzinfo is None:
+            data["updated_at"] = data["updated_at"].replace(tzinfo=timezone.utc)
+    else:
         data["updated_at"] = data.get("created_at") or datetime.now(timezone.utc)
     if data.get("search_profile_id"):
         data["search_profile_id"] = str(data["search_profile_id"])
@@ -93,6 +116,14 @@ class JobService:
         elif status:
             if status == "NEW":
                 query["status"] = {"$in": ["DISCOVERED", "ANALYZED", "MATCHED", "NEW", "READY"]}
+            elif status == "LOW_MATCH":
+                query["$or"] = [
+                    {"status": "LOW_MATCH"},
+                    {"match_result.match_percentage": {"$lt": MIN_MATCH_SCORE, "$ne": None}},
+                ]
+            elif status == "MATCHED":
+                query["status"] = "MATCHED"
+                query["match_result.match_percentage"] = {"$gte": MIN_MATCH_SCORE}
             else:
                 query["status"] = status
         if location:
@@ -107,6 +138,27 @@ class JobService:
             if page is not None and page_size is not None:
                 return {"items": [], "total": 0, "page": page, "page_size": page_size}
             return []
+
+        # Do not show low-match (< MIN_MATCH_SCORE) jobs in Job Explorer
+        if status != "LOW_MATCH":
+            if "status" in query and isinstance(query["status"], dict) and "$in" in query["status"]:
+                query["status"]["$in"] = [s for s in query["status"]["$in"] if s != "LOW_MATCH"]
+            elif "status" not in query:
+                query["status"] = {"$ne": "LOW_MATCH"}
+            score_gate = {
+                "$or": [
+                    {"match_result.match_percentage": {"$gte": MIN_MATCH_SCORE}},
+                    {"match_result": {"$exists": False}},
+                    {"match_result": None},
+                ]
+            }
+            if "$or" in query:
+                existing_or = query.pop("$or")
+                query["$and"] = [{"$or": existing_or}, score_gate]
+            elif "$and" in query:
+                query["$and"].append(score_gate)
+            else:
+                query["$or"] = score_gate["$or"]
 
         total = await self.jobs_col.count_documents(query)
 
@@ -128,6 +180,69 @@ class JobService:
         q = {"_id": ObjectId(job_id), "user_id": {"$in": u_query}}
         res = await self.jobs_col.delete_one(q)
         return res.deleted_count > 0
+
+    async def purge_low_match_jobs(self, user_id: Optional[str] = None) -> int:
+        """Permanently deletes unapplied jobs that scored below MIN_MATCH_SCORE."""
+        q: Dict[str, Any] = {
+            "status": {"$nin": ["APPLIED", "REVIEW", "QUEUED"]},
+            "$or": [
+                {"status": "LOW_MATCH"},
+                {"match_result.match_percentage": {"$lt": MIN_MATCH_SCORE, "$ne": None}}
+            ]
+        }
+        if user_id:
+            u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+            u_query.append(str(user_id))
+            q["user_id"] = {"$in": u_query}
+        res = await self.jobs_col.delete_many(q)
+        return res.deleted_count
+
+    async def purge_stale_jobs(
+        self,
+        user_id: Optional[str] = None,
+        older_than_hours: int = JOB_STALE_HOURS,
+    ) -> Dict[str, Any]:
+        """
+        Deletes jobs that were scraped/fetched more than `older_than_hours` ago and have
+        never been successfully applied to.  Jobs in terminal success states (APPLIED,
+        SKIPPED, QUEUED) are always preserved.
+
+        Called automatically before each automation search round and also exposed as an
+        explicit API endpoint so the user can trigger it from the UI.
+        """
+        if not user_id:
+            return {"message": "User required", "deleted": 0, "cutoff_hours": older_than_hours}
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+        u_query = [ObjectId(user_id)] if ObjectId.is_valid(user_id) else []
+        u_query.append(str(user_id))
+
+        query = {
+            "user_id": {"$in": u_query},
+            "status": {"$in": STALE_ELIGIBLE_STATUSES},
+            "created_at": {"$lt": cutoff},
+        }
+
+        # Count first for the response log — deleteMany has no returned_count in the doc
+        count = await self.jobs_col.count_documents(query)
+        if count == 0:
+            logger.info(f"purge_stale_jobs: no stale jobs found for user {user_id} (cutoff {older_than_hours}h)")
+            return {
+                "message": f"No stale jobs found (older than {older_than_hours} hours).",
+                "deleted": 0,
+                "cutoff_hours": older_than_hours,
+            }
+
+        res = await self.jobs_col.delete_many(query)
+        logger.info(
+            f"purge_stale_jobs: deleted {res.deleted_count} stale job(s) "
+            f"(>{older_than_hours}h old, user={user_id})"
+        )
+        return {
+            "message": f"Removed {res.deleted_count} stale job(s) older than {older_than_hours} hours.",
+            "deleted": res.deleted_count,
+            "cutoff_hours": older_than_hours,
+        }
 
     async def clear_all_jobs(self, user_id: Optional[str] = None) -> Dict[str, Any]:
         query = {}
@@ -255,3 +370,4 @@ class JobService:
         }
 
 job_service = JobService()
+purge_stale_jobs = job_service.purge_stale_jobs

@@ -40,6 +40,7 @@ from app.schemas.automation import (
 from app.services.matching_service import resume_pool_filter, user_resume_filter
 from app.services.billing import PlanLimitError, entitlement_service
 from app.services.realtime import AUTOMATION_UPDATED, notify_user
+from app.services.job_service import MIN_MATCH_SCORE, job_service
 
 logger = logging.getLogger(__name__)
 
@@ -681,6 +682,12 @@ class AutomationService:
             profile_oids = [p["_id"] for p in ctx.profiles]
             query["search_profile_id"] = {"$in": profile_oids + [str(p) for p in profile_oids]}
         query["_id"] = id_filter
+        # Filter out jobs with match percentage below minimum threshold
+        query["$or"] = [
+            {"match_result.match_percentage": {"$gte": MIN_MATCH_SCORE}},
+            {"match_result": {"$exists": False}},
+            {"match_result": None},
+        ]
         cursor = get_database().jobs.find(query).sort([("match_result.match_percentage", -1), ("created_at", -1)])
         return await cursor.to_list(limit)
 
@@ -742,6 +749,23 @@ class AutomationService:
             resume_names = ctx.profile_resumes.get(str(profile["_id"]))
             if resume_names:
                 await self._event(ctx, f"“{profile.get('name', '')}” applies only with: {', '.join(resume_names.values())}.")
+
+        # --- Purge stale jobs before starting so the automation never wastes attempts
+        # on old listings that Dice is no longer accepting. ---
+        try:
+            from app.services.job_service import job_service as _job_service, JOB_STALE_HOURS
+            purge_result = await _job_service.purge_stale_jobs(
+                user_id=ctx.user_id, older_than_hours=JOB_STALE_HOURS
+            )
+            if purge_result.get("deleted", 0):
+                await self._event(
+                    ctx,
+                    f"Removed {purge_result['deleted']} stale job listing(s) older than "
+                    f"{JOB_STALE_HOURS}h that Dice no longer accepts.",
+                )
+        except Exception as _purge_err:
+            logger.warning(f"Stale-job purge failed (non-fatal): {_purge_err}")
+        # ----------------------------------------------------------------
 
         # Dice lists the newest jobs first, so a shallow search keeps returning jobs the user
         # already applied to. While target and time remain, search each profile again, deeper
@@ -874,6 +898,31 @@ class AutomationService:
             job = await jobs_col.find_one({"_id": job["_id"], "status": {"$in": ELIGIBLE_JOB_STATUSES}})
             if not job:
                 continue
+
+            # --- Match-score gate -------------------------------------------
+            # Skip jobs whose resume match is definitively below the threshold.
+            # Unmatched jobs (score is None) are allowed through so they can be
+            # matched on the fly; the LOW_MATCH status gate in _candidate_jobs
+            # already filtered the bulk of below-threshold jobs before we get here.
+            _score = (
+                (job.get("match_result") or {}).get("match_percentage")
+                or (job.get("match") or {}).get("score")
+            )
+            if _score is not None and _score < MIN_MATCH_SCORE:
+                _title = job.get("title") or "Untitled job"
+                logger.info(
+                    "[match-gate] Skipping %s: score %s%% < threshold %s%%",
+                    _title, _score, MIN_MATCH_SCORE,
+                )
+                await self._event(
+                    ctx,
+                    f"Skipped \"{_title}\": resume match {_score}% is below the {MIN_MATCH_SCORE}% minimum threshold.",
+                    "warning",
+                )
+                # Discard it from database so it never shows in Job Explorer
+                await jobs_col.delete_one({"_id": job["_id"]})
+                continue
+            # ----------------------------------------------------------------
 
             if ctx.attempts:
                 ctx.step = "COOLDOWN"

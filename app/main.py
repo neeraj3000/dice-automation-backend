@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 # Ensure virtual environment site-packages is in sys.path even when spawned via Windows multiprocessing
 backend_dir = Path(__file__).resolve().parent.parent
@@ -24,6 +25,27 @@ from app.config import settings
 from app.database import connect_db, close_db, get_database, ensure_indexes
 from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards, avatar as avatar_api, automations, billing
 
+
+_STALE_PURGE_INTERVAL_SECONDS = 3600  # 1 hour
+
+async def _stale_job_purge_loop():
+    """Background daemon that purges unapplied jobs older than JOB_STALE_HOURS every hour."""
+    await asyncio.sleep(5)  # initial delay after startup
+    while True:
+        try:
+            from app.services.job_service import job_service, JOB_STALE_HOURS
+            res = await job_service.purge_stale_jobs(older_than_hours=JOB_STALE_HOURS)
+            deleted = res.get("deleted", 0)
+            if deleted > 0:
+                print(f"[Dice-Automation] [stale-job-purge] Removed {deleted} stale job listing(s) older than {JOB_STALE_HOURS}h.")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[Dice-Automation] [stale-job-purge] Error during periodic purge: {e}")
+        try:
+            await asyncio.sleep(_STALE_PURGE_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            break
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -114,7 +136,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Dice-Automation] Notice during automation recovery: {e}")
 
+    # Startup: Purge any existing unapplied jobs with score < MIN_MATCH_SCORE
+    try:
+        from app.services.job_service import job_service, MIN_MATCH_SCORE
+        deleted_count = await job_service.purge_low_match_jobs()
+        if deleted_count > 0:
+            print(f"[Dice-Automation] [match-gate] Purged {deleted_count} low-match job(s) (<{MIN_MATCH_SCORE}% match) from database.")
+    except Exception as e:
+        print(f"[Dice-Automation] Notice during low-match job purge: {e}")
+
+    # Startup: Background periodic stale job purge loop (every hour)
+    purge_task = asyncio.create_task(_stale_job_purge_loop())
+
     yield
+
+    # Shutdown: Stop periodic purge loop
+    purge_task.cancel()
+    try:
+        await purge_task
+    except asyncio.CancelledError:
+        pass
 
     # Shutdown: End running automations cleanly (records them as interrupted)
     try:

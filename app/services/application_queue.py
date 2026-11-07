@@ -237,6 +237,20 @@ class ApplicationQueueManager:
                 "message": "Job has already been submitted."
             }
 
+        # Check minimum match threshold (skip jobs < 70% match)
+        from app.services.job_service import MIN_MATCH_SCORE
+        _score = (job.get("match_result") or {}).get("match_percentage")
+        if _score is not None and _score < MIN_MATCH_SCORE:
+            await self.jobs_col.update_one(
+                {"_id": job["_id"], "status": {"$nin": ["APPLIED", "REVIEW", "QUEUED"]}},
+                {"$set": {"status": "LOW_MATCH", "updated_at": datetime.now(timezone.utc)}}
+            )
+            return {
+                "job_id": job_id,
+                "status": "SKIPPED",
+                "message": f"Match score {_score}% is below minimum {MIN_MATCH_SCORE}% threshold."
+            }
+
         if user_id and user_id != "default":
             await entitlement_service.assert_can_apply(user_id)
 
@@ -265,6 +279,16 @@ class ApplicationQueueManager:
                 job_id=str(job["_id"]),
                 user_id=user_id if user_id != "default" else job.get("user_id"),
             )
+            if match_res and match_res.match_percentage < MIN_MATCH_SCORE:
+                await self.jobs_col.update_one(
+                    {"_id": job["_id"], "status": {"$nin": ["APPLIED", "REVIEW", "QUEUED"]}},
+                    {"$set": {"status": "LOW_MATCH", "updated_at": datetime.now(timezone.utc)}}
+                )
+                return {
+                    "job_id": job_id,
+                    "status": "SKIPPED",
+                    "message": f"Match score {match_res.match_percentage}% is below minimum {MIN_MATCH_SCORE}% threshold."
+                }
             if match_res.recommended_resume_id and ObjectId.is_valid(match_res.recommended_resume_id):
                 resume = await self.resumes_col.find_one({"_id": ObjectId(match_res.recommended_resume_id), **owner_filter})
 

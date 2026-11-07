@@ -102,7 +102,11 @@ CRITICAL RULES:
 1. Do NOT fabricate or hallucinate skills that are not explicitly present in the candidate's resume.
 2. Select the single best matching resume ID (`recommended_resume_id`).
 3. Set `recommended_resume_name` to the exact candidate's `display_name` from the library (e.g. "Candidate AzureDevOpsEngineer (Candidate-AzureDevOpsEngineer.docx)"). Do NOT just output the personal candidate name.
-4. Calculate a realistic match percentage (0 to 100) based on required skills coverage and role alignment.
+4. Calculate a precise, mathematically grounded match percentage (0 to 100):
+   - Evaluate actual coverage of required skills (weight: 55%).
+   - Evaluate preferred/complementary skills (weight: 25%).
+   - Evaluate role title & seniority alignment (weight: 20%).
+   - Compute a differentiated, realistic number (e.g. 74%, 79%, 83%, 88%, 92%). Do NOT repeatedly default to 85%.
 5. List matched_skills (explicitly present in both JD and selected resume).
 6. List partial_matches (related skills or preferred skills present).
 7. List missing_skills (required by JD but missing from resume).
@@ -118,11 +122,18 @@ CRITICAL RULES:
                             {"role": "user", "content": prompt}
                         ],
                         response_format=JobMatchResult,
-                        temperature=0.1
+                        temperature=0.2
                     ),
                     timeout=18.0
                 )
                 result = response.choices[0].message.parsed
+                # Calibrate score with actual skills coverage ratio to prevent static 85% clustering
+                total_skills_count = len(result.matched_skills) + len(result.missing_skills)
+                if total_skills_count > 0:
+                    coverage_ratio = len(result.matched_skills) / total_skills_count
+                    # Blend actual skill coverage ratio (65%) with LLM contextual evaluation (35%)
+                    calibrated_score = round((coverage_ratio * 70) + (result.match_percentage * 0.3))
+                    result.match_percentage = min(98, max(15, calibrated_score))
                 # Strictly enforce complete resume name and filename from database
                 matched_resume = next((r for r in resumes if r["id"] == result.recommended_resume_id), None)
                 if not matched_resume:
@@ -174,11 +185,12 @@ CRITICAL RULES:
                 if r_words & jd_words:
                     role_bonus = 20
 
-            # Calculate score
+            # Calculate score dynamically based on skill proportions
             total_req = max(1, len(jd.required_skills))
-            req_score = (len(matched_req) / total_req) * 60
-            pref_score = (len(matched_pref) / max(1, len(jd.preferred_skills))) * 20 if jd.preferred_skills else 10
-            total_score = min(98, int(req_score + pref_score + role_bonus))
+            req_ratio = len(matched_req) / total_req
+            pref_ratio = (len(matched_pref) / max(1, len(jd.preferred_skills))) if jd.preferred_skills else 0.4
+            raw_score = (req_ratio * 55) + (pref_ratio * 25) + role_bonus
+            total_score = min(98, max(15, round(raw_score)))
 
             scored_candidates.append({
                 "resume": r,

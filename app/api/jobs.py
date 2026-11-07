@@ -2,10 +2,29 @@ from typing import List, Optional, Union, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Depends
 from app.config import settings
 from app.schemas.job import JobResponse, JobListResponse, DirectMatchRequest
-from app.services.job_service import job_service
+from app.services.job_service import job_service, JOB_STALE_HOURS
 from app.core.deps import get_current_user, get_current_user_optional
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
+
+@router.delete("/purge-stale")
+async def purge_stale_jobs(
+    older_than_hours: int = Query(
+        JOB_STALE_HOURS,
+        ge=1,
+        le=720,
+        description="Delete unapplied jobs fetched more than this many hours ago (default 72).",
+    ),
+    user: dict = Depends(get_current_user),
+):
+    """
+    Purges scraped/fetched jobs that are older than `older_than_hours` and have
+    not been applied to.  Safe to call repeatedly — APPLIED, SKIPPED, and QUEUED
+    jobs are never touched.
+    """
+    user_id = str(user["_id"])
+    return await job_service.purge_stale_jobs(user_id=user_id, older_than_hours=older_than_hours)
+
 
 @router.get("", response_model=Union[JobListResponse, List[JobResponse]])
 async def list_jobs(

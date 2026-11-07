@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 # Jobs matched against resumes in parallel after a search (each match is two LLM calls)
 MATCH_CONCURRENCY = 5
 
+# Imported here so search_service applies the same threshold as the automation engine.
+from app.services.job_service import MIN_MATCH_SCORE
+
 
 async def _notify(on_progress: Optional[Callable[[str], Awaitable[Any]]], message: str):
     if on_progress:
@@ -243,16 +246,47 @@ class SearchService:
 
             await asyncio.gather(*(match_one(jid) for jid in newly_saved_job_ids))
 
+            # --- Low-match sweep -------------------------------------------
+            # After matching, mark any newly-saved jobs that scored below the
+            # minimum threshold as LOW_MATCH so the automation never picks them
+            # up and they appear clearly tagged in the Jobs Explorer.
+            low_match_ids = set()
+            for jid in newly_saved_job_ids:
+                try:
+                    j = await self.jobs_col.find_one(
+                        {"_id": ObjectId(jid)},
+                        {"match_result": 1, "status": 1}
+                    )
+                    if not j:
+                        continue
+                    score = (j.get("match_result") or {}).get("match_percentage")
+                    if score is not None and score < MIN_MATCH_SCORE:
+                        # User requirement: low-match jobs must be skipped and deleted immediately
+                        # so they never show in the Jobs Explorer or get applied to.
+                        await self.jobs_col.delete_one({"_id": ObjectId(jid)})
+                        low_match_ids.add(jid)
+                except Exception as lme:
+                    logger.debug("Low-match sweep notice for job %s: %s", jid, lme)
+            if low_match_ids:
+                newly_saved_job_ids = [jid for jid in newly_saved_job_ids if jid not in low_match_ids]
+                new_jobs_count = max(0, new_jobs_count - len(low_match_ids))
+                logger.info(
+                    "[match-gate] Skipped and deleted %d low-match job(s) (score < %d%%).",
+                    len(low_match_ids), MIN_MATCH_SCORE,
+                )
+            # ---------------------------------------------------------------
+
         # 5. Queue applications (if requested or enabled on profile)
         should_queue = auto_queue
         if should_queue is None:
             should_queue = bool(profile.get("auto_apply") or profile.get("queue_applications"))
 
         queued_count = 0
-        if should_queue and newly_saved_job_ids:
+        eligible_queue_ids = [jid for jid in newly_saved_job_ids if jid not in low_match_ids]
+        if should_queue and eligible_queue_ids:
             try:
                 enqueued = await application_queue_manager.enqueue_jobs(
-                    job_ids=newly_saved_job_ids,
+                    job_ids=eligible_queue_ids,
                     user_id=user_id,
                     mode="APPLY"
                 )
