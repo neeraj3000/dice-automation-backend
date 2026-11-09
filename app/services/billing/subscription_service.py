@@ -34,7 +34,7 @@ class SubscriptionService:
         item = ((sub.get("items") or {}).get("data") or [{}])[0]
         price = item.get("price") or {}
         product_id = price.get("product") if isinstance(price.get("product"), str) else (price.get("product") or {}).get("id")
-        plan = await plan_catalog.by_product_id(product_id) if product_id else None
+        plan = await plan_catalog.resolve_product(product_id)
         # Newer API versions report billing periods per subscription item
         period_end = item.get("current_period_end") or sub.get("current_period_end")
         return {
@@ -157,7 +157,7 @@ class SubscriptionService:
             if not product_id:
                 product = (line.get("price") or {}).get("product")
                 product_id = product if isinstance(product, str) else (product or {}).get("id")
-            plan = await plan_catalog.by_product_id(product_id) if product_id else None
+            plan = await plan_catalog.resolve_product(product_id)
             invoices.append({
                 "id": inv["id"],
                 "number": inv.get("number"),

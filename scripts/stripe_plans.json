@@ -1,0 +1,33 @@
+{
+  "currency": "usd",
+  "interval": "month",
+  "plans": [
+    {
+      "plan_key": "starter",
+      "name": "Starter",
+      "description": "For a focused search in one role.",
+      "unit_amount": 499,
+      "daily_application_limit": 10,
+      "search_profile_limit": 1,
+      "highlight": false
+    },
+    {
+      "plan_key": "pro",
+      "name": "Pro",
+      "description": "For active job seekers targeting a few roles.",
+      "unit_amount": 1299,
+      "daily_application_limit": 30,
+      "search_profile_limit": 3,
+      "highlight": true
+    },
+    {
+      "plan_key": "premium",
+      "name": "Premium",
+      "description": "For maximum reach across many roles.",
+      "unit_amount": 1999,
+      "daily_application_limit": 70,
+      "search_profile_limit": 5,
+      "highlight": false
+    }
+  ]
+}

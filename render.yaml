@@ -24,7 +24,8 @@ services:
       - key: SESSION_ENCRYPTION_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: "*"      - key: STRIPE_SECRET_KEY
+        value: "*"
+      - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
@@ -42,3 +43,5 @@ services:
         value: "1"
       - key: BILLING_TIMEZONE
         value: America/New_York
+      - key: BILLING_WORKING_DAYS_PER_MONTH
+        value: "22"

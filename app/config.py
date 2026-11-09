@@ -74,6 +74,8 @@ class Settings(BaseSettings):
 
     # Daily application allowances reset at midnight in this timezone
     BILLING_TIMEZONE: str
+    # Working days used to show a plan's monthly estimate (daily limit x this) on the pricing page
+    BILLING_WORKING_DAYS_PER_MONTH: int = 22
 
     @property
     def stripe_enabled(self) -> bool:

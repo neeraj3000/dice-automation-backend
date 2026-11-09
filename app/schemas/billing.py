@@ -18,6 +18,9 @@ class PlanOut(BaseModel):
     features: List[str]
     highlight: bool
     is_trial: bool
+    # Display-only estimate for paid plans: daily_application_limit x working_days_per_month
+    monthly_application_limit: Optional[int] = None
+    working_days_per_month: int
 
 
 class UsageOut(BaseModel):

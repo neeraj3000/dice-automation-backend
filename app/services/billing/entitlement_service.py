@@ -88,7 +88,7 @@ def _today_window(now: datetime, tz_name: Optional[str] = None) -> tuple[datetim
 
 async def _paid_plan(subscription: Dict[str, Any]) -> Optional[Plan]:
     try:
-        plan = await plan_catalog.by_product_id(subscription.get("product_id"))
+        plan = await plan_catalog.resolve_product(subscription.get("product_id"))
         if plan:
             return plan
     except Exception as e:  # Stripe unreachable: fall back to the stored snapshot

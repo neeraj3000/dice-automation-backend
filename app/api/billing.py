@@ -4,6 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, Header, Request
 
+from app.config import settings
 from app.core.deps import get_current_user, rate_limit
 from app.schemas.billing import (
     BillingStatusOut,
@@ -17,6 +18,7 @@ from app.schemas.billing import (
 )
 from app.services.billing import entitlement_service, plan_catalog, subscription_service
 from app.services.billing.billing_repository import billing_repository
+from app.services.billing.plan_catalog import Plan
 from app.services.billing.entitlement_service import as_utc, valid_timezone
 from app.services.billing.stripe_gateway import construct_event
 from app.services.billing.webhook_service import handle_event
@@ -27,9 +29,15 @@ router = APIRouter(prefix="/billing", tags=["Billing"])
 limiter = Depends(rate_limit(20, 60))
 
 
+def plan_out(plan: Plan) -> PlanOut:
+    days = settings.BILLING_WORKING_DAYS_PER_MONTH
+    monthly = plan.daily_application_limit * days if plan.daily_application_limit is not None else None
+    return PlanOut(**asdict(plan), monthly_application_limit=monthly, working_days_per_month=days)
+
+
 @router.get("/plans", response_model=List[PlanOut])
 async def list_plans():
-    return [PlanOut(**asdict(p)) for p in await plan_catalog.all_plans()]
+    return [plan_out(p) for p in await plan_catalog.all_plans()]
 
 
 @router.get("/status", response_model=BillingStatusOut)
@@ -46,7 +54,7 @@ async def billing_status(
     sub = ent.account.get("subscription")
     return BillingStatusOut(
         source=ent.source,
-        plan=PlanOut(**asdict(ent.plan)) if ent.plan else None,
+        plan=plan_out(ent.plan) if ent.plan else None,
         subscription=SubscriptionOut(**{k: sub.get(k) for k in SubscriptionOut.model_fields}) if sub else None,
         trial_ends_at=as_utc(ent.account.get("trial_ends_at")),
         has_billing_account=bool(ent.account.get("stripe_customer_id")),
