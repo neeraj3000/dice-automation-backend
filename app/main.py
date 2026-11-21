@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import connect_db, close_db, get_database, ensure_indexes
-from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards, avatar as avatar_api, automations, billing
+from app.api import resumes, search, jobs, applications, review, settings as settings_api, dice_session, auth, boards, avatar as avatar_api, automations, billing, support
 
 
 _STALE_PURGE_INTERVAL_SECONDS = 3600  # 1 hour
@@ -249,6 +249,7 @@ routers = [
     automations.router,
     automations.runs_router,
     billing.router,
+    support.router,
 ]
 
 # Include Routers at root (available directly at http://localhost:8000/)

@@ -77,6 +77,21 @@ class Settings(BaseSettings):
     # Working days used to show a plan's monthly estimate (daily limit x this) on the pricing page
     BILLING_WORKING_DAYS_PER_MONTH: int = 22
 
+    # Outgoing email (SMTP) used by the support/contact form
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True   # STARTTLS (port 587)
+    SMTP_USE_SSL: bool = False  # implicit TLS (port 465)
+    SMTP_FROM_EMAIL: str = ""   # defaults to SMTP_USERNAME when empty
+    SMTP_FROM_NAME: str = "Apply2Hire Support"
+    SUPPORT_EMAIL: str = "support@apply2hire.com"
+
+    @property
+    def smtp_enabled(self) -> bool:
+        return bool(self.SMTP_HOST and (self.SMTP_FROM_EMAIL or self.SMTP_USERNAME))
+
     @property
     def stripe_enabled(self) -> bool:
         return bool(self.STRIPE_SECRET_KEY)
